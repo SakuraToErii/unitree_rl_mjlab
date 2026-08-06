@@ -44,3 +44,10 @@ from .unitree_h2.h2_constants import (
 from .unitree_h2.h2_constants import (
   get_h2_robot_cfg as get_h2_robot_cfg,
 )
+
+from .tiangong3.tk3_constants import (
+  TK3_ACTION_SCALE as TK3_ACTION_SCALE,
+)
+from .tiangong3.tk3_constants import (
+  get_tk3_robot_cfg as get_tk3_robot_cfg,
+)
