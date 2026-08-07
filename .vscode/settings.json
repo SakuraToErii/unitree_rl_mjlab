@@ -9,12 +9,12 @@
         "**/.ruff_cache": true,
         "**/.ipynb_checkpoints": true,
         "**/*.egg-info": true,
-        "**/.venv": true,
+        "**/.venv": false,
         "**/venv": true,
         "**/.env": true,
         "**/outputs": true,
         "**/wandb": true,
-        "**/logs": true,
+        "**/logs": false,
         "**/.DS_Store": true
     },
     "search.exclude": {
