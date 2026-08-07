@@ -1,0 +1,33 @@
+{
+    "ROS2.distro": "humble",
+    "github.copilot.chat.codeGeneration.useInstructionFiles": true,
+    "files.exclude": {
+        "**/__pycache__": true,
+        "**/*.py[cod]": true,
+        "**/.pytest_cache": true,
+        "**/.mypy_cache": true,
+        "**/.ruff_cache": true,
+        "**/.ipynb_checkpoints": true,
+        "**/*.egg-info": true,
+        "**/.venv": true,
+        "**/venv": true,
+        "**/.env": true,
+        "**/outputs": true,
+        "**/wandb": true,
+        "**/logs": true,
+        "**/.DS_Store": true
+    },
+    "search.exclude": {
+        "**/__pycache__": true,
+        "**/.pytest_cache": true,
+        "**/.mypy_cache": true,
+        "**/.ruff_cache": true,
+        "**/*.egg-info": true,
+        "**/.venv": true,
+        "**/venv": true,
+        "**/outputs": true,
+        "**/wandb": true,
+        "**/logs": true,
+        "**/uv.lock": true
+    }
+}
