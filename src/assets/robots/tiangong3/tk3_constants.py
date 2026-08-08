@@ -36,6 +36,9 @@ DAMPING_RATIO = 2.0
 FRICTIONLOSS = 0.1
 TK3_COMMAND_DELAY_MIN_LAG = 0
 TK3_COMMAND_DELAY_MAX_LAG = 4
+# True: use the explicit Kp/Kd values below. False: use the original formula
+# for every actuator group.
+TK3_USE_EXPLICIT_PD_GAINS = True
 
 
 def _position_actuator(
@@ -50,16 +53,16 @@ def _position_actuator(
   # may explicitly override either value without changing this default path.
   calculated_stiffness = armature * NATURAL_FREQ**2
   calculated_damping = 2.0 * DAMPING_RATIO * armature * NATURAL_FREQ
+  resolved_stiffness = calculated_stiffness
+  resolved_damping = calculated_damping
+  if TK3_USE_EXPLICIT_PD_GAINS and stiffness_override is not None:
+    resolved_stiffness = stiffness_override
+  if TK3_USE_EXPLICIT_PD_GAINS and damping_override is not None:
+    resolved_damping = damping_override
   return BuiltinPositionActuatorCfg(
     target_names_expr=target_names_expr,
-    stiffness=(
-      calculated_stiffness
-      if stiffness_override is None
-      else stiffness_override
-    ),
-    damping=(
-      calculated_damping if damping_override is None else damping_override
-    ),
+    stiffness=resolved_stiffness,
+    damping=resolved_damping,
     effort_limit=effort_limit,
     armature=armature,
     frictionloss=FRICTIONLOSS,
