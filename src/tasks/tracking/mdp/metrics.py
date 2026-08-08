@@ -7,16 +7,15 @@ import torch
 from mjlab.utils.lab_api.math import quat_error_magnitude
 
 if TYPE_CHECKING:
-  from mjlab.tasks.tracking.mdp.commands import MotionCommand
+  from .commands import MotionCommand
 
 
 def compute_mpkpe(command: MotionCommand) -> torch.Tensor:
   """Compute Mean Per-Keybody Position Error (MPKPE).
 
-  MPKPE measures the average Euclidean distance between the reference and
-  actual positions of all key bodies in world frame.
+  Includes global translation and heading drift by comparing world-frame poses.
   """
-  pos_error = command.body_pos_relative_w - command.robot_body_pos_w
+  pos_error = command.body_pos_w - command.robot_body_pos_w
   per_body_error = torch.norm(pos_error, dim=-1)  # (num_envs, num_bodies)
   return per_body_error.mean(dim=-1)  # (num_envs,)
 
@@ -24,29 +23,17 @@ def compute_mpkpe(command: MotionCommand) -> torch.Tensor:
 def compute_root_relative_mpkpe(command: MotionCommand) -> torch.Tensor:
   """Compute Root-relative Mean Per-Keybody Position Error (R-MPKPE).
 
-  R-MPKPE measures pose error independent of global drift by computing
-  positions relative to the root/anchor body.
+  Uses the yaw-corrected reference poses already anchored to the robot root.
   """
-  # Compute reference positions relative to reference anchor.
-  ref_anchor_pos = command.anchor_pos_w.unsqueeze(1)  # (num_envs, 1, 3)
-  ref_rel_pos = command.body_pos_w - ref_anchor_pos  # (num_envs, num_bodies, 3)
-
-  # Compute robot positions relative to robot anchor.
-  robot_anchor_pos = command.robot_anchor_pos_w.unsqueeze(1)  # (num_envs, 1, 3)
-  robot_rel_pos = (
-    command.robot_body_pos_w - robot_anchor_pos
-  )  # (num_envs, num_bodies, 3)
-
-  # Compute error between relative positions.
-  pos_error = ref_rel_pos - robot_rel_pos
+  pos_error = command.body_pos_relative_w - command.robot_body_pos_w
   per_body_error = torch.norm(pos_error, dim=-1)  # (num_envs, num_bodies)
   return per_body_error.mean(dim=-1)  # (num_envs,)
 
 
 def compute_joint_velocity_error(command: MotionCommand) -> torch.Tensor:
-  """Compute average joint velocity error."""
+  """Compute root-mean-square joint velocity error."""
   vel_error = command.joint_vel - command.robot_joint_vel
-  return torch.norm(vel_error, dim=-1)  # (num_envs,)
+  return torch.sqrt(torch.mean(vel_error**2, dim=-1))  # (num_envs,)
 
 
 def compute_ee_position_error(
@@ -86,13 +73,12 @@ def _get_body_indices(
   command: MotionCommand,
   body_names: tuple[str, ...],
 ) -> list[int]:
-  """Get indices of specified bodies within the command's body list.
-
-  Args:
-    command: The motion command.
-    body_names: Names of bodies to find.
-
-  Returns:
-    List of indices into command.cfg.body_names.
-  """
-  return [i for i, name in enumerate(command.cfg.body_names) if name in body_names]
+  """Get body indices in requested order, rejecting unknown names."""
+  name_to_index = {name: i for i, name in enumerate(command.cfg.body_names)}
+  missing = [name for name in body_names if name not in name_to_index]
+  if missing:
+    raise ValueError(
+      f"Body names {missing} are not tracked by the command. "
+      f"Available bodies: {tuple(command.cfg.body_names)}."
+    )
+  return [name_to_index[name] for name in body_names]

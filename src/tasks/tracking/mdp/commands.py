@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Literal
 import mujoco
 import numpy as np
 import torch
-
 from mjlab.managers import CommandTerm, CommandTermCfg
 from mjlab.utils.lab_api.math import (
   matrix_from_quat,
@@ -31,29 +30,77 @@ _DESIRED_FRAME_COLORS = ((1.0, 0.5, 0.5), (0.5, 1.0, 0.5), (0.5, 0.5, 1.0))
 
 class MotionLoader:
   def __init__(
-    self, motion_file: str, body_indexes: torch.Tensor, device: str = "cpu"
+    self,
+    motion_file: str,
+    body_indexes: torch.Tensor,
+    device: str = "cpu",
+    *,
+    joint_names: tuple[str, ...] = (),
+    body_names: tuple[str, ...] = (),
   ) -> None:
-    data = np.load(motion_file)
-    self.joint_pos = torch.tensor(data["joint_pos"], dtype=torch.float32, device=device)
-    self.joint_vel = torch.tensor(data["joint_vel"], dtype=torch.float32, device=device)
-    self._body_pos_w = torch.tensor(
-      data["body_pos_w"], dtype=torch.float32, device=device
-    )
-    self._body_quat_w = torch.tensor(
-      data["body_quat_w"], dtype=torch.float32, device=device
-    )
-    self._body_lin_vel_w = torch.tensor(
-      data["body_lin_vel_w"], dtype=torch.float32, device=device
-    )
-    self._body_ang_vel_w = torch.tensor(
-      data["body_ang_vel_w"], dtype=torch.float32, device=device
-    )
-    self._body_indexes = body_indexes
-    self.body_pos_w = self._body_pos_w[:, self._body_indexes]
-    self.body_quat_w = self._body_quat_w[:, self._body_indexes]
-    self.body_lin_vel_w = self._body_lin_vel_w[:, self._body_indexes]
-    self.body_ang_vel_w = self._body_ang_vel_w[:, self._body_indexes]
+    with np.load(motion_file, allow_pickle=False) as data:
+      joint_indexes = self._name_indexes(data, "joint_names", joint_names)
+      body_indexes_by_name = self._name_indexes(data, "body_names", body_names)
+
+      joint_pos = data["joint_pos"]
+      joint_vel = data["joint_vel"]
+      if joint_indexes is not None:
+        joint_pos = joint_pos[:, joint_indexes]
+        joint_vel = joint_vel[:, joint_indexes]
+      elif joint_names and joint_pos.shape[1] != len(joint_names):
+        raise ValueError(
+          f"Motion has {joint_pos.shape[1]} joints but robot has "
+          f"{len(joint_names)}. Add joint_names metadata to the motion file "
+          "when their layouts differ."
+        )
+
+      selected_body_indexes = (
+        body_indexes_by_name
+        if body_indexes_by_name is not None
+        else body_indexes.detach().cpu().tolist()
+      )
+      self.joint_pos = self._to_tensor(joint_pos, device)
+      self.joint_vel = self._to_tensor(joint_vel, device)
+      self.body_pos_w = self._to_tensor(
+        data["body_pos_w"][:, selected_body_indexes], device
+      )
+      self.body_quat_w = self._to_tensor(
+        data["body_quat_w"][:, selected_body_indexes], device
+      )
+      self.body_lin_vel_w = self._to_tensor(
+        data["body_lin_vel_w"][:, selected_body_indexes], device
+      )
+      self.body_ang_vel_w = self._to_tensor(
+        data["body_ang_vel_w"][:, selected_body_indexes], device
+      )
+
     self.time_step_total = self.joint_pos.shape[0]
+
+  @staticmethod
+  def _to_tensor(array: np.ndarray, device: str) -> torch.Tensor:
+    return torch.as_tensor(array, dtype=torch.float32, device=device)
+
+  @staticmethod
+  def _name_indexes(
+    data: np.lib.npyio.NpzFile,
+    key: str,
+    requested_names: tuple[str, ...],
+  ) -> list[int] | None:
+    """Resolve requested names against optional NPZ layout metadata."""
+    if not requested_names or key not in data.files:
+      return None
+
+    stored_names = tuple(str(name) for name in data[key].tolist())
+    if len(stored_names) != len(set(stored_names)):
+      raise ValueError(f"Motion metadata {key!r} contains duplicate names.")
+
+    index_by_name = {name: index for index, name in enumerate(stored_names)}
+    missing_names = [name for name in requested_names if name not in index_by_name]
+    if missing_names:
+      raise ValueError(
+        f"Motion metadata {key!r} is missing required names: {missing_names}."
+      )
+    return [index_by_name[name] for name in requested_names]
 
 
 class MotionCommand(CommandTerm):
@@ -75,7 +122,11 @@ class MotionCommand(CommandTerm):
     )
 
     self.motion = MotionLoader(
-      self.cfg.motion_file, self.body_indexes, device=self.device
+      self.cfg.motion_file,
+      self.body_indexes,
+      device=self.device,
+      joint_names=tuple(self.robot.joint_names),
+      body_names=self.cfg.body_names,
     )
     self.time_steps = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
     self.body_pos_relative_w = torch.zeros(
@@ -303,8 +354,10 @@ class MotionCommand(CommandTerm):
       assert self.cfg.sampling_mode == "adaptive"
       self._adaptive_sampling(env_ids)
 
-    root_pos = self.body_pos_w[:, 0].clone()
-    root_ori = self.body_quat_w[:, 0].clone()
+    reference_root_pos = self.body_pos_w[:, 0].clone()
+    reference_root_ori = self.body_quat_w[:, 0].clone()
+    root_pos = reference_root_pos.clone()
+    root_ori = reference_root_ori.clone()
     root_lin_vel = self.body_lin_vel_w[:, 0].clone()
     root_ang_vel = self.body_ang_vel_w[:, 0].clone()
 
@@ -360,36 +413,68 @@ class MotionCommand(CommandTerm):
     )
     self.robot.write_root_state_to_sim(root_state, env_ids=env_ids)
 
-    self.robot.clear_state(env_ids=env_ids)
+    self.robot.reset(env_ids=env_ids)
+
+    # CommandManager evaluates terminations before the first command update after
+    # reset. Seed the relative targets here so that they never contain the zero
+    # initialization (or a target left over from the previous episode). Estimate
+    # the randomized anchor by applying the sampled root transform; the regular
+    # update below replaces this estimate with forward-kinematics data each step.
+    root_delta_ori = quat_mul(
+      root_ori[env_ids], quat_inv(reference_root_ori[env_ids])
+    )
+    estimated_anchor_pos = root_pos[env_ids] + quat_apply(
+      root_delta_ori,
+      self.anchor_pos_w[env_ids] - reference_root_pos[env_ids],
+    )
+    estimated_anchor_quat = quat_mul(
+      root_delta_ori, self.anchor_quat_w[env_ids]
+    )
+    self._set_body_targets(
+      env_ids,
+      estimated_anchor_pos,
+      estimated_anchor_quat,
+    )
+
+  def _set_body_targets(
+    self,
+    env_ids: torch.Tensor,
+    robot_anchor_pos_w: torch.Tensor,
+    robot_anchor_quat_w: torch.Tensor,
+  ) -> None:
+    """Align reference bodies to the robot anchor in XY position and yaw."""
+    body_count = len(self.cfg.body_names)
+    anchor_pos_w = self.anchor_pos_w[env_ids, None, :].repeat(1, body_count, 1)
+    anchor_quat_w = self.anchor_quat_w[env_ids, None, :].repeat(1, body_count, 1)
+    robot_anchor_pos_w = robot_anchor_pos_w[:, None, :].repeat(1, body_count, 1)
+    robot_anchor_quat_w = robot_anchor_quat_w[:, None, :].repeat(1, body_count, 1)
+
+    delta_pos_w = robot_anchor_pos_w.clone()
+    delta_pos_w[..., 2] = anchor_pos_w[..., 2]
+    delta_ori_w = yaw_quat(quat_mul(robot_anchor_quat_w, quat_inv(anchor_quat_w)))
+
+    self.body_quat_relative_w[env_ids] = quat_mul(
+      delta_ori_w, self.body_quat_w[env_ids]
+    )
+    self.body_pos_relative_w[env_ids] = delta_pos_w + quat_apply(
+      delta_ori_w, self.body_pos_w[env_ids] - anchor_pos_w
+    )
 
   def _update_command(self):
     self.time_steps += 1
-    env_ids = torch.where(self.time_steps >= self.motion.time_step_total)[0]
-    if env_ids.numel() > 0:
-      self._resample_command(env_ids)
+    resampled_env_ids = torch.where(
+      self.time_steps >= self.motion.time_step_total
+    )[0]
+    if resampled_env_ids.numel() > 0:
+      self._resample_command(resampled_env_ids)
+      # Refresh derived body poses after teleporting the resampled environments.
+      self._env.sim.forward()
 
-    anchor_pos_w_repeat = self.anchor_pos_w[:, None, :].repeat(
-      1, len(self.cfg.body_names), 1
-    )
-    anchor_quat_w_repeat = self.anchor_quat_w[:, None, :].repeat(
-      1, len(self.cfg.body_names), 1
-    )
-    robot_anchor_pos_w_repeat = self.robot_anchor_pos_w[:, None, :].repeat(
-      1, len(self.cfg.body_names), 1
-    )
-    robot_anchor_quat_w_repeat = self.robot_anchor_quat_w[:, None, :].repeat(
-      1, len(self.cfg.body_names), 1
-    )
-
-    delta_pos_w = robot_anchor_pos_w_repeat
-    delta_pos_w[..., 2] = anchor_pos_w_repeat[..., 2]
-    delta_ori_w = yaw_quat(
-      quat_mul(robot_anchor_quat_w_repeat, quat_inv(anchor_quat_w_repeat))
-    )
-
-    self.body_quat_relative_w = quat_mul(delta_ori_w, self.body_quat_w)
-    self.body_pos_relative_w = delta_pos_w + quat_apply(
-      delta_ori_w, self.body_pos_w - anchor_pos_w_repeat
+    update_env_ids = torch.arange(self.num_envs, device=self.device)
+    self._set_body_targets(
+      update_env_ids,
+      self.robot_anchor_pos_w,
+      self.robot_anchor_quat_w,
     )
 
     if self.cfg.sampling_mode == "adaptive":

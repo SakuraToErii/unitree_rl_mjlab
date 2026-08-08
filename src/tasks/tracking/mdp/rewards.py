@@ -113,6 +113,32 @@ def motion_global_body_angular_velocity_error_exp(
   return torch.exp(-error.mean(-1) / std**2)
 
 
+def motion_joint_position_error_exp(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  std: float,
+) -> torch.Tensor:
+  """Reward matching the reference joint positions."""
+  command = cast(MotionCommand, env.command_manager.get_term(command_name))
+  error = torch.mean(
+    torch.square(command.joint_pos - command.robot_joint_pos), dim=-1
+  )
+  return torch.exp(-error / std**2)
+
+
+def motion_joint_velocity_error_exp(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  std: float,
+) -> torch.Tensor:
+  """Reward matching the reference joint velocities."""
+  command = cast(MotionCommand, env.command_manager.get_term(command_name))
+  error = torch.mean(
+    torch.square(command.joint_vel - command.robot_joint_vel), dim=-1
+  )
+  return torch.exp(-error / std**2)
+
+
 def self_collision_cost(
   env: ManagerBasedRlEnv,
   sensor_name: str,
