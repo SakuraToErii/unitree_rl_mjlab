@@ -3,13 +3,11 @@
 from pathlib import Path
 
 import mujoco
-
-from src import SRC_PATH
 from mjlab.actuator import BuiltinPositionActuatorCfg
 from mjlab.entity import EntityArticulationInfoCfg, EntityCfg
-from mjlab.utils.actuator import ElectricActuator, reflected_inertia
-from mjlab.utils.os import update_assets
 from mjlab.utils.spec_config import CollisionCfg
+
+from src import SRC_PATH
 
 ##
 # MJCF and assets.
@@ -21,16 +19,8 @@ GO2_XML: Path = (
 assert GO2_XML.exists()
 
 
-def get_assets(meshdir: str) -> dict[str, bytes]:
-  assets: dict[str, bytes] = {}
-  update_assets(assets, GO2_XML.parent / "assets", meshdir)
-  return assets
-
-
 def get_spec() -> mujoco.MjSpec:
-  spec = mujoco.MjSpec.from_file(str(GO2_XML))
-  spec.assets = get_assets(spec.meshdir)
-  return spec
+  return mujoco.MjSpec.from_file(str(GO2_XML))
 
 
 ##
@@ -45,6 +35,7 @@ GO2_ACTUATOR_HIP = BuiltinPositionActuatorCfg(
   damping=1.0,
   effort_limit=23.5,
   armature=0.01,
+  frictionloss=0.0,
 )
 GO2_ACTUATOR_THIGH = BuiltinPositionActuatorCfg(
   target_names_expr=(
@@ -54,6 +45,7 @@ GO2_ACTUATOR_THIGH = BuiltinPositionActuatorCfg(
   damping=1.0,
   effort_limit=23.5,
   armature=0.01,
+  frictionloss=0.0,
 )
 GO2_ACTUATOR_CALF = BuiltinPositionActuatorCfg(
   target_names_expr=(
@@ -63,6 +55,7 @@ GO2_ACTUATOR_CALF = BuiltinPositionActuatorCfg(
   damping=2.0,
   effort_limit=45,
   armature=0.02,
+  frictionloss=0.0,
 )
 
 ##
@@ -140,7 +133,6 @@ def get_go2_robot_cfg() -> EntityCfg:
 
 if __name__ == "__main__":
   import mujoco.viewer as viewer
-
   from mjlab.entity.entity import Entity
 
   robot = Entity(get_go2_robot_cfg())

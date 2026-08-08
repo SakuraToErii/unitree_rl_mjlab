@@ -3,16 +3,15 @@
 from pathlib import Path
 
 import mujoco
-
-from src import SRC_PATH
 from mjlab.actuator import BuiltinPositionActuatorCfg
 from mjlab.entity import EntityArticulationInfoCfg, EntityCfg
 from mjlab.utils.actuator import (
   ElectricActuator,
   reflected_inertia_from_two_stage_planetary,
 )
-from mjlab.utils.os import update_assets
 from mjlab.utils.spec_config import CollisionCfg
+
+from src import SRC_PATH
 
 ##
 # MJCF and assets.
@@ -24,16 +23,8 @@ G1_23DOF_XML: Path = (
 assert G1_23DOF_XML.exists()
 
 
-def get_assets(meshdir: str) -> dict[str, bytes]:
-  assets: dict[str, bytes] = {}
-  update_assets(assets, G1_23DOF_XML.parent / "assets", meshdir)
-  return assets
-
-
 def get_spec() -> mujoco.MjSpec:
-  spec = mujoco.MjSpec.from_file(str(G1_23DOF_XML))
-  spec.assets = get_assets(spec.meshdir)
-  return spec
+  return mujoco.MjSpec.from_file(str(G1_23DOF_XML))
 
 
 ##
@@ -143,6 +134,7 @@ G1_ACTUATOR_5020 = BuiltinPositionActuatorCfg(
   damping=DAMPING_5020,
   effort_limit=ACTUATOR_5020.effort_limit,
   armature=ACTUATOR_5020.reflected_inertia,
+  frictionloss=0.0,
 )
 G1_ACTUATOR_7520_14 = BuiltinPositionActuatorCfg(
   target_names_expr=(".*_hip_pitch_joint", ".*_hip_yaw_joint", "waist_yaw_joint"),
@@ -150,6 +142,7 @@ G1_ACTUATOR_7520_14 = BuiltinPositionActuatorCfg(
   damping=DAMPING_7520_14,
   effort_limit=ACTUATOR_7520_14.effort_limit,
   armature=ACTUATOR_7520_14.reflected_inertia,
+  frictionloss=0.0,
 )
 G1_ACTUATOR_7520_22 = BuiltinPositionActuatorCfg(
   target_names_expr=(".*_hip_roll_joint", ".*_knee_joint"),
@@ -157,6 +150,7 @@ G1_ACTUATOR_7520_22 = BuiltinPositionActuatorCfg(
   damping=DAMPING_7520_22,
   effort_limit=ACTUATOR_7520_22.effort_limit,
   armature=ACTUATOR_7520_22.reflected_inertia,
+  frictionloss=0.0,
 )
 
 # Ankles are 4-bar linkages with 2 5020 actuators.
@@ -170,6 +164,7 @@ G1_ACTUATOR_ANKLE = BuiltinPositionActuatorCfg(
   damping=DAMPING_5020 * 2,
   effort_limit=ACTUATOR_5020.effort_limit * 2,
   armature=ACTUATOR_5020.reflected_inertia * 2,
+  frictionloss=0.0,
 )
 
 ##
@@ -281,7 +276,6 @@ for a in G1_23DOF_ARTICULATION.actuators:
 
 if __name__ == "__main__":
   import mujoco.viewer as viewer
-
   from mjlab.entity.entity import Entity
 
   robot = Entity(get_g1_23dof_robot_cfg())
