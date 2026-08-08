@@ -3,22 +3,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import torch
-
-from mjlab.entity import Entity
-from mjlab.managers.scene_entity_config import SceneEntityCfg
-from mjlab.sensor import ContactSensor
+from mjlab.sensor import ContactSensor, TerrainHeightSensor
 
 if TYPE_CHECKING:
   from mjlab.envs import ManagerBasedRlEnv
 
-_DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
-
-
-def foot_height(
-  env: ManagerBasedRlEnv, asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG
-) -> torch.Tensor:
-  asset: Entity = env.scene[asset_cfg.name]
-  return asset.data.site_pos_w[:, asset_cfg.site_ids, 2]  # (num_envs, num_sites)
+def foot_height(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:
+  sensor = env.scene[sensor_name]
+  assert isinstance(sensor, TerrainHeightSensor)
+  return sensor.data.heights
 
 
 def foot_air_time(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:

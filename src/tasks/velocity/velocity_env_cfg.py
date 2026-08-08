@@ -21,9 +21,13 @@ from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.scene import SceneCfg
-from mjlab.sensor import GridPatternCfg, ObjRef, RayCastSensorCfg
+from mjlab.sensor import (
+  GridPatternCfg,
+  ObjRef,
+  RayCastSensorCfg,
+  TerrainHeightSensorCfg,
+)
 from mjlab.sim import MujocoCfg, SimulationCfg
-from mjlab.tasks.velocity import mdp
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 from mjlab.terrains import TerrainEntityCfg
 from mjlab.terrains.config import ROUGH_TERRAINS_CFG
@@ -47,8 +51,24 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
     pattern=GridPatternCfg(size=(1.6, 1.0), resolution=0.1),
     max_distance=5.0,
     exclude_parent_body=True,
+    include_geom_groups=(0,),
     debug_vis=True,
     viz=RayCastSensorCfg.VizCfg(show_normals=True),
+  )
+
+  foot_height_scan = TerrainHeightSensorCfg(
+    name="foot_height_scan",
+    frame=(),  # Set per-robot.
+    ray_alignment="yaw",
+    max_distance=1.0,
+    exclude_parent_body=True,
+    include_geom_groups=(0,),
+    debug_vis=True,
+    viz=TerrainHeightSensorCfg.VizCfg(
+      show_rays=True,
+      hit_color=(1.0, 0.0, 1.0, 0.8),
+      hit_sphere_color=(1.0, 0.0, 1.0, 1.0),
+    ),
   )
 
   ##
@@ -75,6 +95,7 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
     ),
     "joint_pos": ObservationTermCfg(
       func=mdp.joint_pos_rel,
+      params={"biased": True},
       noise=Unoise(n_min=-0.01, n_max=0.01),
     ),
     "joint_vel": ObservationTermCfg(
@@ -92,6 +113,8 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
 
   critic_terms = {
     **actor_terms,
+    # Critic receives true joint positions as privileged information.
+    "joint_pos": ObservationTermCfg(func=mdp.joint_pos_rel),
     "base_lin_vel": ObservationTermCfg(
       func=mdp.builtin_sensor,
       params={"sensor_name": "robot/imu_lin_vel"},
@@ -104,7 +127,7 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
     ),
     "foot_height": ObservationTermCfg(
       func=mdp.foot_height,
-      params={"asset_cfg": SceneEntityCfg("robot", site_names=())},  # Set per-robot.
+      params={"sensor_name": "foot_height_scan"},
     ),
     "foot_air_time": ObservationTermCfg(
       func=mdp.foot_air_time,
@@ -318,6 +341,7 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
       weight=-1.0,
       params={
         "target_height": 0.10,
+        "height_sensor_name": "foot_height_scan",
         "command_name": "twist",
         "command_threshold": 0.1,
         "asset_cfg": SceneEntityCfg("robot", site_names=()),  # Set per-robot.
@@ -397,7 +421,7 @@ def make_velocity_env_cfg() -> ManagerBasedRlEnvCfg:
         terrain_generator=replace(ROUGH_TERRAINS_CFG),
         max_init_terrain_level=5,
       ),
-      sensors=(terrain_scan,),
+      sensors=(terrain_scan, foot_height_scan),
       num_envs=1,
       extent=2.0,
     ),

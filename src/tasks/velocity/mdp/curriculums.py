@@ -3,11 +3,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, TypedDict, cast
 
 import torch
-
 from mjlab.entity import Entity
 from mjlab.managers.scene_entity_config import SceneEntityCfg
-
-from .velocity_command import UniformVelocityCommandCfg
+from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 
 if TYPE_CHECKING:
   from mjlab.envs import ManagerBasedRlEnv
@@ -32,7 +30,7 @@ def terrain_levels_vel(
   env_ids: torch.Tensor,
   command_name: str,
   asset_cfg: SceneEntityCfg = _DEFAULT_SCENE_CFG,
-) -> torch.Tensor:
+) -> dict[str, torch.Tensor]:
   asset: Entity = env.scene[asset_cfg.name]
 
   terrain = env.scene.terrain
@@ -58,10 +56,31 @@ def terrain_levels_vel(
   )
   move_down *= ~move_up
 
+  # The initial reset occurs before any walking, so keep sampled start levels.
+  if env.common_step_counter == 0:
+    move_up = torch.zeros_like(move_up)
+    move_down = torch.zeros_like(move_down)
+
   # Update terrain levels.
   terrain.update_env_origins(env_ids, move_up, move_down)
 
-  return torch.mean(terrain.terrain_levels.float())
+  levels = terrain.terrain_levels.float()
+  result: dict[str, torch.Tensor] = {
+    "mean": torch.mean(levels),
+    "max": torch.max(levels),
+  }
+
+  sub_terrain_names = list(terrain_generator.sub_terrains.keys())
+  terrain_origins = terrain.terrain_origins
+  assert terrain_origins is not None
+  if terrain_origins.shape[1] == len(sub_terrain_names):
+    types = terrain.terrain_types
+    for index, name in enumerate(sub_terrain_names):
+      mask = types == index
+      if mask.any():
+        result[name] = torch.mean(levels[mask])
+
+  return result
 
 
 def commands_vel(
@@ -75,7 +94,7 @@ def commands_vel(
   assert command_term is not None
   cfg = cast(UniformVelocityCommandCfg, command_term.cfg)
   for stage in velocity_stages:
-    if env.common_step_counter > stage["step"]:
+    if env.common_step_counter >= stage["step"]:
       if "lin_vel_x" in stage and stage["lin_vel_x"] is not None:
         cfg.ranges.lin_vel_x = stage["lin_vel_x"]
       if "lin_vel_y" in stage and stage["lin_vel_y"] is not None:
@@ -83,12 +102,12 @@ def commands_vel(
       if "ang_vel_z" in stage and stage["ang_vel_z"] is not None:
         cfg.ranges.ang_vel_z = stage["ang_vel_z"]
   return {
-    # "lin_vel_x_min": torch.tensor(cfg.ranges.lin_vel_x[0]),
-    # "lin_vel_x_max": torch.tensor(cfg.ranges.lin_vel_x[1]),
-    # "lin_vel_y_min": torch.tensor(cfg.ranges.lin_vel_y[0]),
-    # "lin_vel_y_max": torch.tensor(cfg.ranges.lin_vel_y[1]),
-    # "ang_vel_z_min": torch.tensor(cfg.ranges.ang_vel_z[0]),
-    # "ang_vel_z_max": torch.tensor(cfg.ranges.ang_vel_z[1]),
+    "lin_vel_x_min": torch.tensor(cfg.ranges.lin_vel_x[0]),
+    "lin_vel_x_max": torch.tensor(cfg.ranges.lin_vel_x[1]),
+    "lin_vel_y_min": torch.tensor(cfg.ranges.lin_vel_y[0]),
+    "lin_vel_y_max": torch.tensor(cfg.ranges.lin_vel_y[1]),
+    "ang_vel_z_min": torch.tensor(cfg.ranges.ang_vel_z[0]),
+    "ang_vel_z_max": torch.tensor(cfg.ranges.ang_vel_z[1]),
   }
 
 
