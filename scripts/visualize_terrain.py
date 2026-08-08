@@ -4,7 +4,7 @@ Displays a 10-row grid of terrains with increasing difficulty.
 Configurations and parameters are dynamically loaded from mjlab.terrains.config.
 
 Run with:
-  uv run src/mjlab/scripts/visualize_terrain.py
+  uv run python scripts/visualize_terrain.py
 """
 
 from __future__ import annotations
@@ -12,33 +12,38 @@ from __future__ import annotations
 import dataclasses
 import re
 import time
-from typing import Any, List, TypedDict
+from typing import Any, TypedDict
 
 import mujoco
 import numpy as np
+import trimesh
 import viser
-
-from mjlab.asset_zoo.robots import (
-  get_g1_robot_cfg,
-  get_go1_robot_cfg,
-  get_yam_robot_cfg,
-)
 from mjlab.terrains.config import ALL_TERRAINS_CFG
 from mjlab.terrains.terrain_generator import (
   TerrainGenerator,
   TerrainGeneratorCfg,
 )
-from mjlab.viewer.viser.conversions import (
+from mjviser.conversions import (
+  create_primitive_mesh,
   merge_geoms,
-  merge_geoms_global,
+  mujoco_mesh_to_trimesh,
+)
+from mujoco import mjtGeom
+
+from src.assets.robots import (
+  get_g1_23dof_robot_cfg,
+  get_g1_robot_cfg,
+  get_go2_robot_cfg,
+  get_tk3_robot_cfg,
 )
 
 # Supported robots for visualization.
 ROBOT_CFG_GETTERS = {
   "None": None,
-  "Unitree Go1": get_go1_robot_cfg,
+  "Unitree Go2": get_go2_robot_cfg,
   "Unitree G1": get_g1_robot_cfg,
-  "Yam": get_yam_robot_cfg,
+  "Unitree G1-23DoF": get_g1_23dof_robot_cfg,
+  "Tiangong V3": get_tk3_robot_cfg,
 }
 
 # Parameter range hints for sliders.
@@ -172,7 +177,18 @@ def main():
       print(f"Error: No visual geoms found for {state['robot_name']}")
       return
 
-    robot_mesh = merge_geoms_global(robot_model, robot_data, visual_geom_ids)
+    meshes = []
+    for geom_id in visual_geom_ids:
+      if robot_model.geom_type[geom_id] == mjtGeom.mjGEOM_MESH:
+        mesh = mujoco_mesh_to_trimesh(robot_model, geom_id)
+      else:
+        mesh = create_primitive_mesh(robot_model, geom_id)
+      transform = np.eye(4)
+      transform[:3, :3] = robot_data.geom_xmat[geom_id].reshape(3, 3)
+      transform[:3, 3] = robot_data.geom_xpos[geom_id]
+      mesh.apply_transform(transform)
+      meshes.append(mesh)
+    robot_mesh = trimesh.util.concatenate(meshes) if len(meshes) > 1 else meshes[0]
     n_verts = len(robot_mesh.vertices)
     n_faces = len(robot_mesh.faces)
     print(f"Robot mesh: {n_verts} vertices, {n_faces} faces.")
@@ -308,7 +324,7 @@ def main():
 
   # GUI Setup.
   gui_params_folder = server.gui.add_folder("Terrain Parameters")
-  param_controls: List[Any] = []
+  param_controls: list[Any] = []
 
   def rebuild_gui():
     nonlocal param_controls
