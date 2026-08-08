@@ -6,18 +6,18 @@ import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal
 
 import tyro
-
 from mjlab.envs import ManagerBasedRlEnv, ManagerBasedRlEnvCfg
 from mjlab.rl import MjlabOnPolicyRunner, RslRlBaseRunnerCfg, RslRlVecEnvWrapper
 from mjlab.tasks.registry import list_tasks, load_env_cfg, load_rl_cfg, load_runner_cls
-from mjlab.tasks.tracking.mdp import MotionCommandCfg
 from mjlab.utils.gpu import select_gpus
-from mjlab.utils.os import dump_yaml, get_checkpoint_path
+from mjlab.utils.os import dump_yaml, get_checkpoint_path, get_wandb_checkpoint_path
 from mjlab.utils.torch import configure_torch_backends
 from mjlab.utils.wrappers import VideoRecorder
+
+from src.tasks.tracking.mdp import MotionCommandCfg
 
 
 @dataclass(frozen=True)
@@ -29,7 +29,11 @@ class TrainConfig:
   video_length: int = 200
   video_interval: int = 2000
   enable_nan_guard: bool = False
+  log_root: str = "logs/rsl_rl"
+  """Root directory under which experiment logs are written."""
   torchrunx_log_dir: str | None = None
+  wandb_run_path: str | None = None
+  wandb_checkpoint_name: str | None = None
   gpu_ids: list[int] | Literal["all"] | None = field(default_factory=lambda: [0])
 
   @staticmethod
@@ -52,7 +56,7 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
     os.environ["MUJOCO_EGL_DEVICE_ID"] = str(local_rank)
     device = f"cuda:{local_rank}"
     # Set seed to have diversity in different processes.
-    seed = cfg.agent.seed + local_rank
+    seed = cfg.agent.seed + rank
 
   configure_torch_backends()
 
@@ -67,19 +71,15 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
   )
 
   if is_tracking_task:
+    motion_cmd = cfg.env.commands["motion"]
+    assert isinstance(motion_cmd, MotionCommandCfg)
     if not cfg.motion_file:
-      raise ValueError("For tracking tasks, --motion-file must be set ...")
+      raise ValueError("Tracking tasks require --motion-file /path/to/motion.npz.")
     motion_path = Path(cfg.motion_file).expanduser().resolve()
     if not motion_path.exists():
       raise FileNotFoundError(f"Motion file not found: {motion_path}")
-    motion_cmd = cfg.env.commands["motion"]
-    assert isinstance(motion_cmd, MotionCommandCfg)
     motion_cmd.motion_file = str(motion_path)
     print(f"[INFO] Using motion file: {motion_cmd.motion_file}")
-
-    # Check if motion_file is already set (e.g., via CLI --env.commands.motion.motion-file).
-    if motion_cmd.motion_file and Path(motion_cmd.motion_file).exists():
-      print(f"[INFO] Using local motion file: {motion_cmd.motion_file}")
 
   # Enable NaN guard if requested.
   if cfg.enable_nan_guard:
@@ -97,6 +97,17 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
 
   resume_path: Path | None = None
   if cfg.agent.resume:
+    if cfg.wandb_run_path is not None:
+      resume_path, was_cached = get_wandb_checkpoint_path(
+        log_root_path, Path(cfg.wandb_run_path), cfg.wandb_checkpoint_name
+      )
+      if rank == 0:
+        cached_str = "cached" if was_cached else "downloaded"
+        print(
+          f"[INFO]: Loading W&B checkpoint: {resume_path.name} "
+          f"(run: {resume_path.parent.name}, {cached_str})"
+        )
+    else:
       # Load checkpoint from local filesystem.
       resume_path = get_checkpoint_path(
         log_root_path, cfg.agent.load_run, cfg.agent.load_checkpoint
@@ -122,6 +133,11 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
   if runner_cls is None:
     runner_cls = MjlabOnPolicyRunner
 
+  # Runner construction mutates the agent config in RSL-RL 5.x.
+  if rank == 0:
+    dump_yaml(log_dir / "params" / "env.yaml", env_cfg)
+    dump_yaml(log_dir / "params" / "agent.yaml", agent_cfg)
+
   runner_kwargs = {}
   runner = runner_cls(env, agent_cfg, str(log_dir), device, **runner_kwargs)
 
@@ -129,11 +145,6 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
   if resume_path is not None:
     print(f"[INFO]: Loading model checkpoint from: {resume_path}")
     runner.load(str(resume_path))
-
-  # Only write config files from rank 0 to avoid race conditions.
-  if rank == 0:
-    dump_yaml(log_dir / "params" / "env.yaml", env_cfg)
-    dump_yaml(log_dir / "params" / "agent.yaml", agent_cfg)
 
   runner.learn(
     num_learning_iterations=cfg.agent.max_iterations, init_at_random_ep_len=True
@@ -146,7 +157,7 @@ def launch_training(task_id: str, args: TrainConfig | None = None):
   args = args or TrainConfig.from_task(task_id)
 
   # Create log directory once before launching workers.
-  log_root_path = Path("logs") / "rsl_rl" / args.agent.experiment_name
+  log_root_path = Path(args.log_root) / args.agent.experiment_name
   log_root_path.resolve()
   log_dir_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
   if args.agent.run_name:
@@ -195,8 +206,9 @@ def launch_training(task_id: str, args: TrainConfig | None = None):
 def main():
   # Parse first argument to choose the task.
   # Import tasks to populate the registry.
-  import mjlab.tasks  # noqa: F401
-  import src.tasks
+  import mjlab.tasks
+
+  import src.tasks  # noqa: F401
 
   all_tasks = list_tasks()
   chosen_task, remaining_args = tyro.cli(

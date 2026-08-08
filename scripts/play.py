@@ -8,21 +8,23 @@ from typing import Literal
 
 import torch
 import tyro
-
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
 from mjlab.tasks.registry import list_tasks, load_env_cfg, load_rl_cfg, load_runner_cls
-from mjlab.tasks.tracking.mdp import MotionCommandCfg
 from mjlab.utils.os import get_wandb_checkpoint_path
 from mjlab.utils.torch import configure_torch_backends
 from mjlab.utils.wrappers import VideoRecorder
 from mjlab.viewer import NativeMujocoViewer, ViserPlayViewer
+
+from src.tasks.tracking.mdp import MotionCommandCfg
 
 
 @dataclass(frozen=True)
 class PlayConfig:
   agent: Literal["zero", "random", "trained"] = "trained"
   checkpoint_file: str | None = None
+  wandb_run_path: str | None = None
+  wandb_checkpoint_name: str | None = None
   motion_file: str | None = None
   num_envs: int | None = None
   device: str | None = None
@@ -34,6 +36,8 @@ class PlayConfig:
   viewer: Literal["auto", "native", "viser"] = "auto"
   no_terminations: bool = False
   """Disable all termination conditions (useful for viewing motions with dummy agents)."""
+  log_root: str = "logs/rsl_rl"
+  """Root directory under which experiment logs are written."""
 
   # Internal flag used by demo script.
   _demo_mode: tyro.conf.Suppress[bool] = False
@@ -70,21 +74,17 @@ def run_play(task_id: str, cfg: PlayConfig):
     motion_cmd = env_cfg.commands["motion"]
     assert isinstance(motion_cmd, MotionCommandCfg)
 
-    # Check for local motion file first (works for both dummy and trained modes).
-    if cfg.motion_file is not None and Path(cfg.motion_file).exists():
-      print(f"[INFO]: Using local motion file: {cfg.motion_file}")
-      motion_cmd.motion_file = cfg.motion_file
-    elif DUMMY_MODE:
-      if not cfg.registry_name:
-        raise ValueError(
-          "Tracking tasks require either:\n"
-          "  --motion-file /path/to/motion.npz (local file)\n"
-          "  --registry-name your-org/motions/motion-name (download from WandB)"
-        )
+    if cfg.motion_file is None:
+      raise ValueError("Tracking tasks require --motion-file /path/to/motion.npz.")
+    motion_path = Path(cfg.motion_file).expanduser().resolve()
+    if not motion_path.exists():
+      raise FileNotFoundError(f"Motion file not found: {motion_path}")
+    print(f"[INFO]: Using local motion file: {motion_path}")
+    motion_cmd.motion_file = str(motion_path)
   log_dir: Path | None = None
   resume_path: Path | None = None
   if TRAINED_MODE:
-    log_root_path = (Path("logs") / "rsl_rl" / agent_cfg.experiment_name).resolve()
+    log_root_path = (Path(cfg.log_root) / agent_cfg.experiment_name).resolve()
     if cfg.checkpoint_file is not None:
       resume_path = Path(cfg.checkpoint_file)
       if not resume_path.exists():
@@ -96,7 +96,7 @@ def run_play(task_id: str, cfg: PlayConfig):
           "`wandb_run_path` is required when `checkpoint_file` is not provided."
         )
       resume_path, was_cached = get_wandb_checkpoint_path(
-        log_root_path, Path(cfg.wandb_run_path)
+        log_root_path, Path(cfg.wandb_run_path), cfg.wandb_checkpoint_name
       )
       # Extract run_id and checkpoint name from path for display.
       run_id = resume_path.parent.name
@@ -180,8 +180,9 @@ def run_play(task_id: str, cfg: PlayConfig):
 def main():
   # Parse first argument to choose the task.
   # Import tasks to populate the registry.
-  import mjlab.tasks  # noqa: F401
-  import src.tasks
+  import mjlab.tasks
+
+  import src.tasks  # noqa: F401
 
   all_tasks = list_tasks()
   chosen_task, remaining_args = tyro.cli(
