@@ -1,10 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
 <robot name="tiangong3">
-  <!-- Match Beyond Mimic's UrdfFileCfg(merge_fixed_joints=False) and retain
-       the source visual meshes instead of rendering only collision shapes. -->
-  <mujoco>
-    <compiler fusestatic="false" discardvisual="false" />
-  </mujoco>
   <link name="pelvis">
     <inertial>
       <origin xyz="-0.000924 0.000347 -0.054631" rpy="0 0 0" />
@@ -20,7 +15,7 @@
         <color rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
       </material>
     </visual>
-    <collision>
+  <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="../meshes_convex/pelvis.STL" />
@@ -77,10 +72,16 @@
         <mesh filename="../meshes_convex/hip_roll_l_link.STL" />
       </geometry>
     </collision> -->
-    <collision>
+    <!-- <collision>
       <origin xyz="0 0 0" rpy="0 1.57079632679 0" />
       <geometry>
         <cylinder radius="0.055" length="0.10" />
+      </geometry>
+    </collision> -->
+    <collision>
+      <origin xyz="0 0 0.0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.05" />
       </geometry>
     </collision>
   </link>
@@ -113,9 +114,9 @@
       </geometry>
     </collision> -->
     <collision>
-      <origin xyz="0 0 -0.15" rpy="0 0 0" />
+      <origin xyz="0 0 -0.17" rpy="0 0 0" />
       <geometry>
-        <cylinder radius="0.04" length="0.20" />
+        <cylinder radius="0.04" length="0.18" />
       </geometry>
     </collision>
   </link>
@@ -148,14 +149,14 @@
       </geometry>
     </collision> -->
     <collision>
-      <origin xyz="0 0 -0.18" rpy="0 0 0" />
+      <origin xyz="0 0 -0.21" rpy="0 0 0" />
       <geometry>
-        <cylinder radius="0.035" length="0.26" />
+        <cylinder radius="0.035" length="0.23" />
       </geometry>
     </collision>
   </link>
   <joint name="knee_pitch_l_joint" type="revolute">
-    <origin xyz="-0.012927 0 -0.30599" rpy="0 0.018418 0" />
+    <origin xyz="-0.012927 0 -0.30599" rpy="0 0.0 0" />
     <parent link="hip_yaw_l_link" />
     <child link="knee_pitch_l_link" />
     <axis xyz="0 1 0" />
@@ -184,7 +185,7 @@
     </collision> -->
   </link>
   <joint name="ankle_pitch_l_joint" type="revolute">
-    <origin xyz="0.0073682 0 -0.39993" rpy="0 0 0" />
+    <origin xyz="0.0 0 -0.4" rpy="0 0 0" />
     <parent link="knee_pitch_l_link" />
     <child link="ankle_pitch_l_link" />
     <axis xyz="0 1 0" />
@@ -293,10 +294,16 @@
         <mesh filename="../meshes_convex/hip_roll_r_link.STL" />
       </geometry>
     </collision> -->
-    <collision>
+    <!-- <collision>
       <origin xyz="0 0 0" rpy="0 1.57079632679 0" />
       <geometry>
         <cylinder radius="0.055" length="0.10" />
+      </geometry>
+    </collision> -->
+    <collision>
+      <origin xyz="0 0 0.0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.05" />
       </geometry>
     </collision>
   </link>
@@ -329,9 +336,9 @@
       </geometry>
     </collision> -->
     <collision>
-      <origin xyz="0 0 -0.15" rpy="0 0 0" />
+      <origin xyz="0 0 -0.17" rpy="0 0 0" />
       <geometry>
-        <cylinder radius="0.04" length="0.20" />
+        <cylinder radius="0.04" length="0.18" />
       </geometry>
     </collision>
   </link>
@@ -364,14 +371,14 @@
       </geometry>
     </collision> -->
     <collision>
-      <origin xyz="0 0 -0.18" rpy="0 0 0" />
+      <origin xyz="0 0 -0.21" rpy="0 0 0" />
       <geometry>
-        <cylinder radius="0.035" length="0.26" />
+        <cylinder radius="0.035" length="0.23" />
       </geometry>
     </collision>
   </link>
   <joint name="knee_pitch_r_joint" type="revolute">
-    <origin xyz="-0.012927 0 -0.30599" rpy="0 0.036386 0" />
+    <origin xyz="-0.012927 0 -0.30599" rpy="0 0.0 0" />
     <parent link="hip_yaw_r_link" />
     <child link="knee_pitch_r_link" />
     <axis xyz="0 1 0" />
@@ -400,7 +407,7 @@
     </collision> -->
   </link>
   <joint name="ankle_pitch_r_joint" type="revolute">
-    <origin xyz="0.014553 0 -0.39974" rpy="0 0 0" />
+    <origin xyz="0.0 0 -0.4" rpy="0 0 0" />
     <parent link="knee_pitch_r_link" />
     <child link="ankle_pitch_r_link" />
     <axis xyz="0 1 0" />
@@ -560,7 +567,7 @@
         <color rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
       </material>
     </visual>
-    <collision>
+  <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="../meshes_convex/waist_pitch_link.STL" />
@@ -823,12 +830,12 @@
         <mesh filename="../meshes_convex/shoulder_yaw_l_link.STL" />
       </geometry>
     </collision> -->
-    <collision>
+    <!-- <collision>
       <origin xyz="0. 0.0 -0.05" rpy="0 -0.0 0" />
       <geometry>
         <cylinder radius="0.04" length="0.10" />
       </geometry>
-    </collision>
+    </collision> -->
   </link>
   <joint name="shoulder_yaw_l_joint" type="revolute">
     <origin xyz="0 0 -0.1004" rpy="0 0 0" />
@@ -861,7 +868,7 @@
     <collision>
       <origin xyz="-0.02 -0.0 -0.06" rpy="0 -0.0 0" />
       <geometry>
-        <cylinder radius="0.05" length="0.12" />
+        <cylinder radius="0.035" length="0.12" />
       </geometry>
     </collision>
   </link>
@@ -894,7 +901,7 @@
       </geometry>
     </collision> -->
   </link>
-  <joint name="elbow_yaw_l_joint" type="revolute">
+  <joint name="elbow_yaw_l_joint" type="fixed">
     <origin xyz="-0.02 0 -0.104" rpy="0 0 0" />
     <parent link="elbow_pitch_l_link" />
     <child link="elbow_yaw_l_link" />
@@ -922,14 +929,26 @@
         <mesh filename="../meshes_convex/wrist_pitch_l_link.STL" />
       </geometry>
     </collision> -->
-    <collision name="wrist_pitch_l_collision">
-      <origin xyz="0 0 -0.031" rpy="0 0 0" />
+    <!-- <collision name="wrist_pitch_l_collision_1">
+      <origin xyz="-0.0 -0.0 -0.00" rpy="0 -1.5708 1.5708" />
       <geometry>
-        <cylinder radius="0.035" length="0.062" />
+        <cylinder radius="0.035" length="0.06" />
       </geometry>
-    </collision>
+    </collision> -->
+    <!-- <collision name="wrist_pitch_l_collision_2">
+      <origin xyz="-0.0 -0.0 -0.062" rpy="0 -1.5708 0.0" />
+      <geometry>
+        <cylinder radius="0.035" length="0.06" />
+      </geometry>
+    </collision> -->
+    <!-- <collision>
+      <origin xyz="0 0 0.0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.04" />
+      </geometry>
+    </collision> -->
   </link>
-  <joint name="wrist_pitch_l_joint" type="revolute">
+  <joint name="wrist_pitch_l_joint" type="fixed">
     <origin xyz="0 0 -0.0944" rpy="0 0 0" />
     <parent link="elbow_yaw_l_link" />
     <child link="wrist_pitch_l_link" />
@@ -958,7 +977,7 @@
       </geometry>
     </collision> -->
   </link>
-  <joint name="wrist_roll_l_joint" type="revolute">
+  <joint name="wrist_roll_l_joint" type="fixed">
     <origin xyz="0 0 -0.062" rpy="0 0 0" />
     <parent link="wrist_pitch_l_link" />
     <child link="wrist_roll_l_link" />
@@ -980,7 +999,7 @@
         <color rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
       </material>
     </visual>
-    <collision>
+  <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="../meshes_convex/left_tcp_link.STL" />
@@ -1072,12 +1091,12 @@
         <mesh filename="../meshes_convex/shoulder_yaw_r_link.STL" />
       </geometry>
     </collision> -->
-    <collision>
+    <!-- <collision>
       <origin xyz="0. 0.0 -0.05" rpy="0 -0.0 0" />
       <geometry>
         <cylinder radius="0.04" length="0.10" />
       </geometry>
-    </collision>
+    </collision> -->
   </link>
   <joint name="shoulder_yaw_r_joint" type="revolute">
     <origin xyz="0 0 -0.1004" rpy="0 0 0" />
@@ -1110,7 +1129,7 @@
     <collision>
       <origin xyz="-0.02 -0.0 -0.06" rpy="0 -0.0 0" />
       <geometry>
-        <cylinder radius="0.05" length="0.12" />
+        <cylinder radius="0.035" length="0.12" />
       </geometry>
     </collision>
   </link>
@@ -1143,7 +1162,7 @@
       </geometry>
     </collision> -->
   </link>
-  <joint name="elbow_yaw_r_joint" type="revolute">
+  <joint name="elbow_yaw_r_joint" type="fixed">
     <origin xyz="-0.02 0 -0.104" rpy="0 0 0" />
     <parent link="elbow_pitch_r_link" />
     <child link="elbow_yaw_r_link" />
@@ -1171,14 +1190,26 @@
         <mesh filename="../meshes_convex/wrist_pitch_r_link.STL" />
       </geometry>
     </collision> -->
-    <collision name="wrist_pitch_r_collision">
-      <origin xyz="0 0 -0.031" rpy="0 0 0" />
+    <!-- <collision name="wrist_pitch_l_collision_1">
+      <origin xyz="-0.0 -0.0 -0.00" rpy="0 -1.5708 1.5708" />
       <geometry>
-        <cylinder radius="0.035" length="0.062" />
+        <cylinder radius="0.035" length="0.06" />
       </geometry>
-    </collision>
+    </collision> -->
+    <!-- <collision name="wrist_pitch_l_collision_2">
+      <origin xyz="-0.0 -0.0 -0.062" rpy="0 -1.5708 0.0" />
+      <geometry>
+        <cylinder radius="0.035" length="0.06" />
+      </geometry>
+    </collision> -->
+    <!-- <collision>
+      <origin xyz="0 0 0.0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.04" />
+      </geometry>
+    </collision> -->
   </link>
-  <joint name="wrist_pitch_r_joint" type="revolute">
+  <joint name="wrist_pitch_r_joint" type="fixed">
     <origin xyz="0 0 -0.0944" rpy="0 0 0" />
     <parent link="elbow_yaw_r_link" />
     <child link="wrist_pitch_r_link" />
@@ -1207,7 +1238,7 @@
       </geometry>
     </collision> -->
   </link>
-  <joint name="wrist_roll_r_joint" type="revolute">
+  <joint name="wrist_roll_r_joint" type="fixed">
     <origin xyz="0 0 -0.062" rpy="0 0 0" />
     <parent link="wrist_pitch_r_link" />
     <child link="wrist_roll_r_link" />
@@ -1229,7 +1260,7 @@
         <color rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
       </material>
     </visual>
-    <collision>
+  <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="../meshes_convex/right_tcp_link.STL" />

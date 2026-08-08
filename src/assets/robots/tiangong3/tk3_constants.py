@@ -3,13 +3,11 @@
 from pathlib import Path
 
 import mujoco
-
 from mjlab.actuator import BuiltinPositionActuatorCfg
 from mjlab.entity import EntityArticulationInfoCfg, EntityCfg
-from mjlab.utils.os import update_assets
 from mjlab.utils.spec_config import CollisionCfg
-from src import SRC_PATH
 
+from src import SRC_PATH
 
 # MJCF and assets.
 TK3_XML: Path = (
@@ -22,18 +20,9 @@ assert TK3_XML.exists()
 assert TK3_MESH_DIR.exists()
 
 
-def get_assets(meshdir: str) -> dict[str, bytes]:
-  """Load meshes required when the robot spec is attached to a scene."""
-  assets: dict[str, bytes] = {}
-  update_assets(assets, TK3_MESH_DIR, meshdir)
-  return assets
-
-
 def get_spec() -> mujoco.MjSpec:
   """Return a fresh robot-only MuJoCo spec."""
-  spec = mujoco.MjSpec.from_file(str(TK3_XML))
-  spec.assets = get_assets(spec.meshdir)
-  return spec
+  return mujoco.MjSpec.from_file(str(TK3_XML))
 
 
 # Actuator configuration.
@@ -45,6 +34,8 @@ def get_spec() -> mujoco.MjSpec:
 NATURAL_FREQ = 5.0 * 2.0 * 3.1415926535
 DAMPING_RATIO = 2.0
 FRICTIONLOSS = 0.1
+TK3_COMMAND_DELAY_MIN_LAG = 0
+TK3_COMMAND_DELAY_MAX_LAG = 4
 
 
 def _position_actuator(
@@ -60,49 +51,60 @@ def _position_actuator(
     effort_limit=effort_limit,
     armature=armature,
     frictionloss=FRICTIONLOSS,
+    delay_min_lag=TK3_COMMAND_DELAY_MIN_LAG,
+    delay_max_lag=TK3_COMMAND_DELAY_MAX_LAG,
+    # A reset event samples the lag; keep it fixed for the whole episode.
+    delay_hold_prob=1.0,
   )
 
+ARMATURE_HIP_PITCH_ROLL = 0.24
+ARMATURE_HIP_YAW = 0.18
+ARMATURE_KNEE = 0.37
+ARMATURE_ANKLE = 0.032
+ARMATURE_WAIST = 0.17
+ARMATURE_ARM = 0.1
+ARMATURE_WRIST = 0.0236
 
-TK3_ACTUATOR_HIP_YAW = _position_actuator(
-  (r"hip_yaw_[lr]_joint",), armature=0.18, effort_limit=142.0
-)
 TK3_ACTUATOR_HIP_PITCH_ROLL = _position_actuator(
-  (r"hip_(pitch|roll)_[lr]_joint",), armature=0.24, effort_limit=200.0
+  (r"hip_(pitch|roll)_[lr]_joint",), armature=ARMATURE_HIP_PITCH_ROLL, effort_limit=223.0
+)
+TK3_ACTUATOR_HIP_YAW = _position_actuator(
+  (r"hip_yaw_[lr]_joint",), armature=ARMATURE_HIP_YAW, effort_limit=142.0
 )
 TK3_ACTUATOR_KNEE = _position_actuator(
-  (r"knee_pitch_[lr]_joint",), armature=0.37, effort_limit=330.0
+  (r"knee_pitch_[lr]_joint",), armature=ARMATURE_KNEE, effort_limit=380.0
 )
 TK3_ACTUATOR_ANKLE = _position_actuator(
-  (r"ankle_(pitch|roll)_[lr]_joint",), armature=0.032, effort_limit=55.0
-)
-TK3_ACTUATOR_WAIST_YAW = _position_actuator(
-  (r"waist_yaw_joint",), armature=0.17, effort_limit=91.0
+  (r"ankle_(pitch|roll)_[lr]_joint",), armature=ARMATURE_ANKLE, effort_limit=52.0
 )
 TK3_ACTUATOR_WAIST_PITCH_ROLL = _position_actuator(
-  (r"waist_(roll|pitch)_joint",), armature=0.17, effort_limit=150.0
+  (r"waist_(roll|pitch)_joint",), armature=ARMATURE_WAIST, effort_limit=142.0
+)
+TK3_ACTUATOR_WAIST_YAW = _position_actuator(
+  (r"waist_yaw_joint",), armature=ARMATURE_WAIST, effort_limit=86.0
 )
 TK3_ACTUATOR_SHOULDER_PITCH_ROLL = _position_actuator(
-  (r"shoulder_(pitch|roll)_[lr]_joint",), armature=0.1, effort_limit=90.0
+  (r"shoulder_(pitch|roll)_[lr]_joint",), armature=ARMATURE_ARM, effort_limit=85.0
 )
 TK3_ACTUATOR_SHOULDER_YAW_ELBOW_PITCH = _position_actuator(
   (r"(shoulder_yaw|elbow_pitch)_[lr]_joint",),
-  armature=0.1,
-  effort_limit=50.0,
+  armature=ARMATURE_ARM,
+  effort_limit=47.0,
 )
 TK3_ACTUATOR_ELBOW_YAW = _position_actuator(
-  (r"elbow_yaw_[lr]_joint",), armature=0.1, effort_limit=25.0
+  (r"elbow_yaw_[lr]_joint",), armature=ARMATURE_ARM, effort_limit=24.0
 )
 TK3_ACTUATOR_WRIST = _position_actuator(
-  (r"wrist_(pitch|roll)_[lr]_joint",), armature=0.0236, effort_limit=25.0
+  (r"wrist_(pitch|roll)_[lr]_joint",), armature=ARMATURE_WRIST, effort_limit=38.0
 )
 
 TK3_ACTUATORS = (
-  TK3_ACTUATOR_HIP_YAW,
   TK3_ACTUATOR_HIP_PITCH_ROLL,
+  TK3_ACTUATOR_HIP_YAW,
   TK3_ACTUATOR_KNEE,
   TK3_ACTUATOR_ANKLE,
-  TK3_ACTUATOR_WAIST_YAW,
   TK3_ACTUATOR_WAIST_PITCH_ROLL,
+  TK3_ACTUATOR_WAIST_YAW,
   TK3_ACTUATOR_SHOULDER_PITCH_ROLL,
   TK3_ACTUATOR_SHOULDER_YAW_ELBOW_PITCH,
   TK3_ACTUATOR_ELBOW_YAW,
@@ -135,12 +137,14 @@ HOME_KEYFRAME = EntityCfg.InitialStateCfg(
 # Collision configuration.
 FOOT_GEOM_PATTERN = r"^foot_(left|right)_.*$"
 COLLISION_GEOM_PATTERN = r".*_collision(?:_[0-9]+)?$"
+TK3_NOMINAL_FOOT_GROUND_FRICTION = 1.0
 
 FULL_COLLISION = CollisionCfg(
   geom_names_expr=(COLLISION_GEOM_PATTERN, FOOT_GEOM_PATTERN),
   condim={FOOT_GEOM_PATTERN: 3, COLLISION_GEOM_PATTERN: 1},
-  priority={FOOT_GEOM_PATTERN: 1},
-  friction={FOOT_GEOM_PATTERN: (1.5,)},
+  priority={FOOT_GEOM_PATTERN: 2},
+  # Foot priority makes this the effective foot-ground sliding coefficient.
+  friction={FOOT_GEOM_PATTERN: (TK3_NOMINAL_FOOT_GROUND_FRICTION,)},
 )
 
 
@@ -172,7 +176,6 @@ for actuator in TK3_ACTUATORS:
 
 if __name__ == "__main__":
   import mujoco.viewer as viewer
-
   from mjlab.entity.entity import Entity
 
   robot = Entity(get_tk3_robot_cfg())
