@@ -17,6 +17,7 @@ from mjlab.utils.wrappers import VideoRecorder
 from mjlab.viewer import NativeMujocoViewer, ViserPlayViewer
 
 from src.tasks.tracking.mdp import MotionCommandCfg
+from src.tasks.tracking.rl import MotionTrackingOnPolicyRunner
 
 
 @dataclass(frozen=True)
@@ -158,6 +159,27 @@ def run_play(task_id: str, cfg: PlayConfig):
       str(resume_path), load_cfg={"actor": True}, strict=True, map_location=device
     )
     policy = runner.get_inference_policy(device=device)
+    if is_tracking_task:
+      if not isinstance(runner, MotionTrackingOnPolicyRunner):
+        raise TypeError(
+          "Tracking play requires MotionTrackingOnPolicyRunner for ONNX export"
+        )
+      assert resume_path is not None
+      export_dir = resume_path.parent / "exported"
+      onnx_path = runner.export_motion_policy_bundle(
+        str(export_dir),
+        "policy.onnx",
+        run_name=resume_path.parent.name,
+      )
+      print(f"[INFO] Exported motion policy: {onnx_path}")
+      if task_id == "TK3-Tracking":
+        config_path = runner.export_beyond_mimic_config(
+          export_dir / "BeyondMimic_dance.yaml",
+          onnx_filename=onnx_path.name,
+          physical_dt=0.01,
+          decimation=1,
+        )
+        print(f"[INFO] Exported BeyondMimic config: {config_path}")
 
   # Handle "auto" viewer selection.
   if cfg.viewer == "auto":
