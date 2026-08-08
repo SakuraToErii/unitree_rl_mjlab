@@ -43,11 +43,23 @@ def _position_actuator(
   *,
   armature: float,
   effort_limit: float,
+  stiffness_override: float | None = None,
+  damping_override: float | None = None,
 ) -> BuiltinPositionActuatorCfg:
+  # Preserve the original armature-based PD calculation. TK3 actuator groups
+  # may explicitly override either value without changing this default path.
+  calculated_stiffness = armature * NATURAL_FREQ**2
+  calculated_damping = 2.0 * DAMPING_RATIO * armature * NATURAL_FREQ
   return BuiltinPositionActuatorCfg(
     target_names_expr=target_names_expr,
-    stiffness=armature * NATURAL_FREQ**2,
-    damping=2.0 * DAMPING_RATIO * armature * NATURAL_FREQ,
+    stiffness=(
+      calculated_stiffness
+      if stiffness_override is None
+      else stiffness_override
+    ),
+    damping=(
+      calculated_damping if damping_override is None else damping_override
+    ),
     effort_limit=effort_limit,
     armature=armature,
     frictionloss=FRICTIONLOSS,
@@ -66,36 +78,74 @@ ARMATURE_ARM = 0.1
 ARMATURE_WRIST = 0.0236
 
 TK3_ACTUATOR_HIP_PITCH_ROLL = _position_actuator(
-  (r"hip_(pitch|roll)_[lr]_joint",), armature=ARMATURE_HIP_PITCH_ROLL, effort_limit=223.0
+  (r"hip_(pitch|roll)_[lr]_joint",),
+  armature=ARMATURE_HIP_PITCH_ROLL,
+  effort_limit=223.0,
+  stiffness_override=900.0,
+  damping_override=57.0,
 )
 TK3_ACTUATOR_HIP_YAW = _position_actuator(
-  (r"hip_yaw_[lr]_joint",), armature=ARMATURE_HIP_YAW, effort_limit=142.0
+  (r"hip_yaw_[lr]_joint",),
+  armature=ARMATURE_HIP_YAW,
+  effort_limit=142.0,
+  stiffness_override=660.0,
+  damping_override=42.0,
 )
 TK3_ACTUATOR_KNEE = _position_actuator(
-  (r"knee_pitch_[lr]_joint",), armature=ARMATURE_KNEE, effort_limit=380.0
+  (r"knee_pitch_[lr]_joint",),
+  armature=ARMATURE_KNEE,
+  effort_limit=380.0,
+  stiffness_override=1260.0,
+  damping_override=80.0,
 )
 TK3_ACTUATOR_ANKLE = _position_actuator(
-  (r"ankle_(pitch|roll)_[lr]_joint",), armature=ARMATURE_ANKLE, effort_limit=52.0
+  (r"ankle_(pitch|roll)_[lr]_joint",),
+  armature=ARMATURE_ANKLE,
+  effort_limit=52.0,
+  stiffness_override=55.0,
+  damping_override=3.4,
 )
 TK3_ACTUATOR_WAIST_PITCH_ROLL = _position_actuator(
-  (r"waist_(roll|pitch)_joint",), armature=ARMATURE_WAIST, effort_limit=142.0
+  (r"waist_(roll|pitch)_joint",),
+  armature=ARMATURE_WAIST,
+  effort_limit=142.0,
+  stiffness_override=670.0,
+  damping_override=41.0,
 )
 TK3_ACTUATOR_WAIST_YAW = _position_actuator(
-  (r"waist_yaw_joint",), armature=ARMATURE_WAIST, effort_limit=86.0
+  (r"waist_yaw_joint",),
+  armature=ARMATURE_WAIST,
+  effort_limit=86.0,
+  stiffness_override=670.0,
+  damping_override=41.0,
 )
 TK3_ACTUATOR_SHOULDER_PITCH_ROLL = _position_actuator(
-  (r"shoulder_(pitch|roll)_[lr]_joint",), armature=ARMATURE_ARM, effort_limit=85.0
+  (r"shoulder_(pitch|roll)_[lr]_joint",),
+  armature=ARMATURE_ARM,
+  effort_limit=85.0,
+  stiffness_override=100.0,
+  damping_override=7.4,
 )
 TK3_ACTUATOR_SHOULDER_YAW_ELBOW_PITCH = _position_actuator(
   (r"(shoulder_yaw|elbow_pitch)_[lr]_joint",),
   armature=ARMATURE_ARM,
   effort_limit=47.0,
+  stiffness_override=90.0,
+  damping_override=5.9,
 )
 TK3_ACTUATOR_ELBOW_YAW = _position_actuator(
-  (r"elbow_yaw_[lr]_joint",), armature=ARMATURE_ARM, effort_limit=24.0
+  (r"elbow_yaw_[lr]_joint",),
+  armature=ARMATURE_ARM,
+  effort_limit=24.0,
+  stiffness_override=35.0,
+  damping_override=2.4,
 )
 TK3_ACTUATOR_WRIST = _position_actuator(
-  (r"wrist_(pitch|roll)_[lr]_joint",), armature=ARMATURE_WRIST, effort_limit=38.0
+  (r"wrist_(pitch|roll)_[lr]_joint",),
+  armature=ARMATURE_WRIST,
+  effort_limit=38.0,
+  stiffness_override=35.0,
+  damping_override=2.4,
 )
 
 TK3_ACTUATORS = (
