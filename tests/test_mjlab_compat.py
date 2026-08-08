@@ -3,10 +3,12 @@ from __future__ import annotations
 import importlib
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from types import SimpleNamespace
 
 import mjlab.tasks  # noqa: F401
+import mujoco
 import numpy as np
 import torch
 from mjlab.sensor import TerrainHeightSensorCfg
@@ -75,6 +77,17 @@ class Mjlab153CompatibilityTest(unittest.TestCase):
       model = get_robot_cfg().spec_fn().compile()
       self.assertGreater(model.nbody, 1)
       self.assertGreater(model.njnt, 0)
+
+  def test_tk3_urdf_preserves_fixed_links_and_visuals(self) -> None:
+    urdf_path = (
+      Path(__file__).parents[1]
+      / "src/assets/robots/tiangong3/urdf/tiangong3.urdf"
+    )
+    link_count = len(ET.parse(urdf_path).getroot().findall("link"))
+    model = mujoco.MjSpec.from_file(str(urdf_path)).compile()
+
+    self.assertEqual(model.nbody - 1, link_count)
+    self.assertEqual((model.geom_group == 1).sum(), link_count)
 
   def test_velocity_height_sensors_are_terrain_relative(self) -> None:
     for task_id in (

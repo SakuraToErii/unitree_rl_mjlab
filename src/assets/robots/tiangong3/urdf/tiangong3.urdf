@@ -1,5 +1,8 @@
 <?xml version='1.0' encoding='utf-8'?>
 <robot name="tiangong3">
+  <mujoco>
+    <compiler fusestatic="false" discardvisual="false" />
+  </mujoco>
   <link name="pelvis">
     <inertial>
       <origin xyz="-0.000924 0.000347 -0.054631" rpy="0 0 0" />
@@ -15,7 +18,7 @@
         <color rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
       </material>
     </visual>
-  <collision>
+    <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="../meshes_convex/pelvis.STL" />
@@ -567,7 +570,7 @@
         <color rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
       </material>
     </visual>
-  <collision>
+    <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="../meshes_convex/waist_pitch_link.STL" />
@@ -999,7 +1002,7 @@
         <color rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
       </material>
     </visual>
-  <collision>
+    <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="../meshes_convex/left_tcp_link.STL" />
@@ -1260,7 +1263,7 @@
         <color rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
       </material>
     </visual>
-  <collision>
+    <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <mesh filename="../meshes_convex/right_tcp_link.STL" />
