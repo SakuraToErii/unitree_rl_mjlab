@@ -21,6 +21,8 @@ include = ["src*"]
 src = [
     "assets/**/*.csv",
     "assets/**/*.obj",
+    "assets/**/*.stl",
+    "assets/**/*.STL",
     "assets/**/*.urdf",
     "assets/**/*.xml",
 ]

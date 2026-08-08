@@ -14,5 +14,8 @@ __pycache__/
 *.py[cod]
 .venv/
 *.STL
+!src/assets/robots/tiangong3/meshes/*.STL
+!src/assets/robots/tiangong3/meshes_convex/*.STL
 datasets
-tests
+tests/*
+!tests/test_mjlab_compat.py
