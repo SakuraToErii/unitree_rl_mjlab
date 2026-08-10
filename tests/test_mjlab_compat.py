@@ -11,6 +11,11 @@ import mjlab.tasks  # noqa: F401
 import mujoco
 import numpy as np
 import torch
+from mjlab.actuator import BuiltinPositionActuator
+from mjlab.actuator.actuator import TransmissionType
+from mjlab.envs.mdp.actions import JointPositionAction
+from mjlab.managers.reward_manager import RewardTermCfg
+from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import TerrainHeightSensorCfg
 from mjlab.tasks.registry import list_tasks, load_env_cfg, load_rl_cfg
 
@@ -24,14 +29,18 @@ from src.assets.robots.tiangong3.tk3_constants import (
 from src.assets.robots.unitree_g1.g1_23dof_constants import G1_23DOF_ARTICULATION
 from src.assets.robots.unitree_g1.g1_constants import G1_ARTICULATION
 from src.assets.robots.unitree_go2.go2_constants import GO2_ARTICULATION
-from src.tasks.tracking.mdp.commands import MotionLoader
-from src.tasks.tracking.mdp.events import randomize_actuator_command_lag
+from src.tasks.tracking.mdp.commands import (
+  MotionCommand,
+  MotionCommandCfg,
+  MotionLoader,
+)
 from src.tasks.tracking.mdp.metrics import (
   compute_ee_position_error,
   compute_joint_velocity_error,
   compute_mpkpe,
   compute_root_relative_mpkpe,
 )
+from src.tasks.tracking.mdp.rewards import raw_action_torque_limit_penalty
 from src.tasks.velocity.mdp.curriculums import terrain_levels_vel
 
 LOCAL_TASKS = {
@@ -201,54 +210,169 @@ class Mjlab153CompatibilityTest(unittest.TestCase):
       for actuator in articulation.actuators:
         self.assertIsNotNone(actuator.frictionloss)
 
-  def test_tk3_actuator_command_lag_is_sampled_per_episode(self) -> None:
+  def test_raw_action_torque_limit_penalty_uses_soft_limit(self) -> None:
+    actuator = BuiltinPositionActuator.__new__(BuiltinPositionActuator)
+    actuator.cfg = SimpleNamespace(transmission_type=TransmissionType.JOINT)
+    actuator._target_ids = torch.tensor((0, 1))
+    actuator._global_ctrl_ids = torch.tensor((0, 1))
+
+    action_term = JointPositionAction.__new__(JointPositionAction)
+    action_term._target_ids = torch.tensor((0, 1))
+    action_term._raw_actions = torch.tensor(((0.5, 1.0), (0.0, 0.0)))
+    action_term._scale = 1.0
+    action_term._offset = 0.0
+
+    gainprm = torch.zeros((2, 2, 10))
+    gainprm[..., 0] = 10.0
+    biasprm = torch.zeros((2, 2, 10))
+    biasprm[..., 1] = -10.0
+    asset = SimpleNamespace(
+      num_joints=2,
+      joint_names=("joint_0", "joint_1"),
+      actuators=[actuator],
+      data=SimpleNamespace(
+        encoder_bias=torch.zeros((2, 2)),
+        joint_pos=torch.zeros((2, 2)),
+        joint_vel=torch.zeros((2, 2)),
+      ),
+    )
+    env = SimpleNamespace(
+      num_envs=2,
+      device=torch.device("cpu"),
+      scene={"robot": asset},
+      action_manager=SimpleNamespace(get_term=lambda _name: action_term),
+      sim=SimpleNamespace(
+        model=SimpleNamespace(
+          actuator_gainprm=gainprm,
+          actuator_biasprm=biasprm,
+          actuator_forcerange=torch.tensor(((-5.0, 5.0), (-5.0, 5.0))),
+        ),
+        expanded_fields={"actuator_gainprm", "actuator_biasprm"},
+      ),
+    )
+    asset_cfg = SceneEntityCfg("robot", joint_ids=[0, 1])
+    term_cfg = RewardTermCfg(
+      func=raw_action_torque_limit_penalty,
+      weight=-2.0,
+      params={
+        "action_name": "joint_pos",
+        "asset_cfg": asset_cfg,
+        "soft_ratio": 0.8,
+      },
+    )
+
+    penalty = raw_action_torque_limit_penalty(term_cfg, env)
+    value = penalty(
+      env,
+      action_name="joint_pos",
+      asset_cfg=asset_cfg,
+      soft_ratio=0.8,
+    )
+    torch.testing.assert_close(value, torch.tensor((2.3125, 0.0)))
+
+    tk3_cfg = load_env_cfg("TK3-Tracking")
+    self.assertEqual(
+      tk3_cfg.rewards["raw_action_torque_limit"].params["soft_ratio"],
+      0.8,
+    )
+
+  def test_tk3_actuator_command_lag_is_sampled_after_motion_resample(self) -> None:
     for actuator in TK3_ARTICULATION.actuators:
       self.assertEqual(actuator.delay_min_lag, TK3_COMMAND_DELAY_MIN_LAG)
       self.assertEqual(actuator.delay_max_lag, TK3_COMMAND_DELAY_MAX_LAG)
       self.assertEqual(actuator.delay_hold_prob, 1.0)
 
     cfg = load_env_cfg("TK3-Tracking")
-    delay_event = cfg.events["actuator_command_delay"]
-    self.assertEqual(delay_event.mode, "reset")
-    self.assertIs(delay_event.func, randomize_actuator_command_lag)
+    self.assertNotIn("actuator_command_delay", cfg.events)
+    motion_cfg = cfg.commands["motion"]
+    self.assertIsInstance(motion_cfg, MotionCommandCfg)
     self.assertEqual(
-      delay_event.params["lag_range"],
+      motion_cfg.actuator_command_lag_range,
       (TK3_COMMAND_DELAY_MIN_LAG, TK3_COMMAND_DELAY_MAX_LAG),
     )
+    play_cfg = load_env_cfg("TK3-Tracking", play=True)
+    play_motion_cfg = play_cfg.commands["motion"]
+    self.assertIsInstance(play_motion_cfg, MotionCommandCfg)
+    self.assertIsNone(play_motion_cfg.actuator_command_lag_range)
 
     class FakeActuator:
       def __init__(self, has_delay: bool) -> None:
         self.has_delay = has_delay
         self.calls: list[tuple[torch.Tensor, torch.Tensor]] = []
+        self.current_lags = torch.zeros(4, dtype=torch.long)
+
+      def reset(self, env_ids: torch.Tensor) -> None:
+        self.current_lags[env_ids] = 0
 
       def set_lags(self, lags: torch.Tensor, env_ids: torch.Tensor) -> None:
         self.calls.append((lags.clone(), env_ids.clone()))
+        self.current_lags[env_ids] = lags
 
-    delayed_a = FakeActuator(has_delay=True)
-    delayed_b = FakeActuator(has_delay=True)
-    direct = FakeActuator(has_delay=False)
-    env = SimpleNamespace(
-      num_envs=4,
-      device=torch.device("cpu"),
-      scene={
-        "robot": SimpleNamespace(actuators=[delayed_a, delayed_b, direct]),
-      },
-    )
+    class FakeRobot:
+      def __init__(self) -> None:
+        self.actuators = [
+          FakeActuator(has_delay=True),
+          FakeActuator(has_delay=True),
+          FakeActuator(has_delay=False),
+        ]
+        self.reset_calls: list[torch.Tensor] = []
+
+      def reset(self, env_ids: torch.Tensor) -> None:
+        self.reset_calls.append(env_ids.clone())
+        for actuator in self.actuators:
+          actuator.reset(env_ids)
+
+    robot = FakeRobot()
     env_ids = torch.tensor((1, 3))
-    randomize_actuator_command_lag(
-      env,
-      env_ids,
-      lag_range=(TK3_COMMAND_DELAY_MIN_LAG, TK3_COMMAND_DELAY_MAX_LAG),
+    command = SimpleNamespace(
+      robot=robot,
+      cfg=SimpleNamespace(
+        actuator_command_lag_range=(3, 3),
+      ),
     )
 
+    MotionCommand._reset_robot_and_randomize_actuator_command_lag(
+      command, env_ids
+    )
+    self.assertEqual(len(robot.reset_calls), 1)
+    delayed_a, delayed_b, direct = robot.actuators
     self.assertEqual(len(delayed_a.calls), 1)
     self.assertEqual(len(delayed_b.calls), 1)
     self.assertEqual(len(direct.calls), 0)
     sampled_lags, sampled_env_ids = delayed_a.calls[0]
     torch.testing.assert_close(sampled_lags, delayed_b.calls[0][0])
     torch.testing.assert_close(sampled_env_ids, env_ids)
-    self.assertTrue(torch.all(sampled_lags >= TK3_COMMAND_DELAY_MIN_LAG))
-    self.assertTrue(torch.all(sampled_lags <= TK3_COMMAND_DELAY_MAX_LAG))
+    torch.testing.assert_close(delayed_a.current_lags[env_ids], torch.tensor((3, 3)))
+
+    # Reaching the end of the reference motion calls the same reset path and
+    # intentionally samples a new lag for the next reference segment.
+    command.cfg.actuator_command_lag_range = (1, 1)
+    MotionCommand._reset_robot_and_randomize_actuator_command_lag(
+      command, env_ids
+    )
+    self.assertEqual(len(robot.reset_calls), 2)
+    torch.testing.assert_close(delayed_a.current_lags[env_ids], torch.tensor((1, 1)))
+
+    command.cfg.actuator_command_lag_range = None
+    MotionCommand._reset_robot_and_randomize_actuator_command_lag(
+      command, env_ids
+    )
+    self.assertEqual(len(delayed_a.calls), 2)
+    torch.testing.assert_close(delayed_a.current_lags[env_ids], torch.tensor((0, 0)))
+
+  def test_tk3_base_com_applies_after_pseudo_inertia(self) -> None:
+    cfg = load_env_cfg("TK3-Tracking")
+    startup_names = [
+      name for name, term_cfg in cfg.events.items() if term_cfg.mode == "startup"
+    ]
+    self.assertLess(
+      startup_names.index("randomize_rigid_body_mass_others"),
+      startup_names.index("base_com"),
+    )
+    self.assertEqual(
+      cfg.events["base_com"].params["asset_cfg"].body_names,
+      ("pelvis",),
+    )
 
   def test_visualizer_imports_with_mjviser(self) -> None:
     importlib.import_module("scripts.visualize_terrain")

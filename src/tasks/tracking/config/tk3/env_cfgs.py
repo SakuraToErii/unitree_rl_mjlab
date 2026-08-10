@@ -98,6 +98,10 @@ def tk3_flat_tracking_env_cfg(
     "elbow_pitch_r_link",
     "wrist_roll_r_link",
   )
+  motion_cmd.actuator_command_lag_range = (
+    TK3_COMMAND_DELAY_MIN_LAG,
+    TK3_COMMAND_DELAY_MAX_LAG,
+  )
 
   cfg.events["foot_friction"].params[
     "asset_cfg"
@@ -111,17 +115,19 @@ def tk3_flat_tracking_env_cfg(
       friction=(TK3_NOMINAL_FOOT_GROUND_FRICTION,),
     ),
   )
+  cfg.events["foot_friction"].params["shared_random"] = True
   cfg.events["ground_friction"] = EventTermCfg(
     func=dr.geom_friction,
     mode="startup",
     params={
       "asset_cfg": SceneEntityCfg("terrain", geom_names=r"^terrain$"),
       "operation": "abs",
-      "ranges": (0.2, 1.0),
+      "ranges": (0.1, 1.0),
       "shared_random": True,
     },
   )
-  cfg.events["base_com"].params["asset_cfg"].body_names = ("pelvis",)
+  base_com_event = cfg.events.pop("base_com")
+  base_com_event.params["asset_cfg"].body_names = ("pelvis",)
   cfg.events["randomize_rigid_body_mass_others"] = EventTermCfg(
     mode="startup",
     func=dr.pseudo_inertia,
@@ -134,6 +140,9 @@ def tk3_flat_tracking_env_cfg(
       "distribution": _UNIFORM_MASS_SCALE_DISTRIBUTION,
     },
   )
+  # pseudo_inertia writes body_ipos from compile defaults. Reinsert base_com
+  # afterward so its pelvis offset composes with the randomized mass/inertia.
+  cfg.events["base_com"] = base_com_event
   cfg.events["joint_armature"] = EventTermCfg(
     mode="startup",
     func=dr.joint_armature,
@@ -157,19 +166,10 @@ def tk3_flat_tracking_env_cfg(
     mode="startup",
     func=dr.joint_friction,
     params={
-      "ranges": (0.5, 2.0),
-      "operation": "scale",
+      "ranges": (0.01, 0.6),
+      "operation": "abs",
     },
   )
-  cfg.events["actuator_command_delay"] = EventTermCfg(
-    func=mdp.randomize_actuator_command_lag,
-    mode="reset",
-    params={
-      "lag_range": (TK3_COMMAND_DELAY_MIN_LAG, TK3_COMMAND_DELAY_MAX_LAG),
-      "asset_cfg": SceneEntityCfg("robot"),
-    },
-  )
-
   cfg.terminations["ee_body_pos"].params["body_names"] = (
     "ankle_roll_l_link",
     "ankle_roll_r_link",
@@ -188,6 +188,16 @@ def tk3_flat_tracking_env_cfg(
     params={"command_name": "motion", "std": math.sqrt(5.0)},
   )
 
+  cfg.rewards["raw_action_torque_limit"] = RewardTermCfg(
+    func=mdp.raw_action_torque_limit_penalty,
+    weight=-2.0,
+    params={
+      "action_name": "joint_pos",
+      "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
+      "soft_ratio": 0.8,
+    },
+  )
+
   cfg.viewer.body_name = "pelvis"
   cfg.viewer.distance = 3.5
 
@@ -195,7 +205,7 @@ def tk3_flat_tracking_env_cfg(
   # simulation step, decimation=2 keeps one policy step per motion frame.
   cfg.decimation = 2
   cfg.episode_length_s = 20.0
-  cfg.sim.nconmax = 50
+  cfg.sim.nconmax = 64
 
   if not has_state_estimation:
     actor_terms = {
@@ -215,6 +225,7 @@ def tk3_flat_tracking_env_cfg(
     # Evaluate against nominal robot and terrain parameters.
     # This also leaves actuator delay buffers at their default zero lag.
     cfg.events.clear()
+    motion_cmd.actuator_command_lag_range = None
 
     motion_cmd.pose_range = {}
     motion_cmd.velocity_range = {}

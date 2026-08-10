@@ -21,6 +21,8 @@ from mjlab.utils.lab_api.math import (
 )
 from mjlab.viewer.debug_visualizer import DebugVisualizer
 
+from .events import randomize_actuator_command_lag
+
 if TYPE_CHECKING:
   from mjlab.entity import Entity
   from mjlab.envs import ManagerBasedRlEnv
@@ -413,7 +415,7 @@ class MotionCommand(CommandTerm):
     )
     self.robot.write_root_state_to_sim(root_state, env_ids=env_ids)
 
-    self.robot.reset(env_ids=env_ids)
+    self._reset_robot_and_randomize_actuator_command_lag(env_ids)
 
     # CommandManager evaluates terminations before the first command update after
     # reset. Seed the relative targets here so that they never contain the zero
@@ -435,6 +437,18 @@ class MotionCommand(CommandTerm):
       estimated_anchor_pos,
       estimated_anchor_quat,
     )
+
+  def _reset_robot_and_randomize_actuator_command_lag(
+    self,
+    env_ids: torch.Tensor,
+  ) -> None:
+    self.robot.reset(env_ids=env_ids)
+    if self.cfg.actuator_command_lag_range is not None:
+      randomize_actuator_command_lag(
+        self.robot,
+        env_ids,
+        lag_range=self.cfg.actuator_command_lag_range,
+      )
 
   def _set_body_targets(
     self,
@@ -569,6 +583,7 @@ class MotionCommandCfg(CommandTermCfg):
   adaptive_uniform_ratio: float = 0.1
   adaptive_alpha: float = 0.001
   sampling_mode: Literal["adaptive", "uniform", "start"] = "adaptive"
+  actuator_command_lag_range: tuple[int, int] | None = None
 
   @dataclass
   class VizCfg:

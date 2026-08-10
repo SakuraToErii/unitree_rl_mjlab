@@ -38,7 +38,7 @@ TK3_COMMAND_DELAY_MIN_LAG = 0
 TK3_COMMAND_DELAY_MAX_LAG = 4
 # True: use the explicit Kp/Kd values below. False: use the original formula
 # for every actuator group.
-TK3_USE_EXPLICIT_PD_GAINS = True
+TK3_USE_EXPLICIT_PD_GAINS = False
 
 
 def _position_actuator(
@@ -68,7 +68,7 @@ def _position_actuator(
     frictionloss=FRICTIONLOSS,
     delay_min_lag=TK3_COMMAND_DELAY_MIN_LAG,
     delay_max_lag=TK3_COMMAND_DELAY_MAX_LAG,
-    # A reset event samples the lag; keep it fixed for the whole episode.
+    # MotionCommand samples after reset and holds until the next motion resample.
     delay_hold_prob=1.0,
   )
 
