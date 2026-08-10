@@ -251,9 +251,10 @@ class raw_action_torque_limit_penalty:
     field_name: str,
   ) -> torch.Tensor:
     values = getattr(env.sim.model, field_name)
-    if field_name in env.sim.expanded_fields:
-      return values[:, self._ctrl_ids]
-    return values[self._ctrl_ids].unsqueeze(0)
+    # MJWarp model tensors are world-major even when a field is not independently
+    # expanded for domain randomization. `expanded_fields` describes mutability,
+    # not whether the leading world dimension exists.
+    return values[:, self._ctrl_ids]
 
   def __call__(
     self,

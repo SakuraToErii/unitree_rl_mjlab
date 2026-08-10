@@ -38,7 +38,7 @@ TK3_COMMAND_DELAY_MIN_LAG = 0
 TK3_COMMAND_DELAY_MAX_LAG = 4
 # True: use the explicit Kp/Kd values below. False: use the original formula
 # for every actuator group.
-TK3_USE_EXPLICIT_PD_GAINS = False
+TK3_USE_EXPLICIT_PD_GAINS = True
 
 
 def _position_actuator(

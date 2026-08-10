@@ -218,26 +218,29 @@ class Mjlab153CompatibilityTest(unittest.TestCase):
 
     action_term = JointPositionAction.__new__(JointPositionAction)
     action_term._target_ids = torch.tensor((0, 1))
-    action_term._raw_actions = torch.tensor(((0.5, 1.0), (0.0, 0.0)))
+    action_term._raw_actions = torch.tensor(
+      ((0.5, 1.0), (0.0, 0.0), (0.0, 0.0))
+    )
     action_term._scale = 1.0
     action_term._offset = 0.0
 
-    gainprm = torch.zeros((2, 2, 10))
+    gainprm = torch.zeros((3, 2, 10))
     gainprm[..., 0] = 10.0
-    biasprm = torch.zeros((2, 2, 10))
+    biasprm = torch.zeros((3, 2, 10))
     biasprm[..., 1] = -10.0
+    force_range = torch.tensor(((-5.0, 5.0), (-5.0, 5.0))).repeat(3, 1, 1)
     asset = SimpleNamespace(
       num_joints=2,
       joint_names=("joint_0", "joint_1"),
       actuators=[actuator],
       data=SimpleNamespace(
-        encoder_bias=torch.zeros((2, 2)),
-        joint_pos=torch.zeros((2, 2)),
-        joint_vel=torch.zeros((2, 2)),
+        encoder_bias=torch.zeros((3, 2)),
+        joint_pos=torch.zeros((3, 2)),
+        joint_vel=torch.zeros((3, 2)),
       ),
     )
     env = SimpleNamespace(
-      num_envs=2,
+      num_envs=3,
       device=torch.device("cpu"),
       scene={"robot": asset},
       action_manager=SimpleNamespace(get_term=lambda _name: action_term),
@@ -245,7 +248,7 @@ class Mjlab153CompatibilityTest(unittest.TestCase):
         model=SimpleNamespace(
           actuator_gainprm=gainprm,
           actuator_biasprm=biasprm,
-          actuator_forcerange=torch.tensor(((-5.0, 5.0), (-5.0, 5.0))),
+          actuator_forcerange=force_range,
         ),
         expanded_fields={"actuator_gainprm", "actuator_biasprm"},
       ),
@@ -268,12 +271,12 @@ class Mjlab153CompatibilityTest(unittest.TestCase):
       asset_cfg=asset_cfg,
       soft_ratio=0.8,
     )
-    torch.testing.assert_close(value, torch.tensor((2.3125, 0.0)))
+    torch.testing.assert_close(value, torch.tensor((2.3125, 0.0, 0.0)))
 
     tk3_cfg = load_env_cfg("TK3-Tracking")
     self.assertEqual(
       tk3_cfg.rewards["raw_action_torque_limit"].params["soft_ratio"],
-      0.8,
+      0.85,
     )
 
   def test_tk3_actuator_command_lag_is_sampled_after_motion_resample(self) -> None:

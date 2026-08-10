@@ -194,7 +194,7 @@ def tk3_flat_tracking_env_cfg(
     params={
       "action_name": "joint_pos",
       "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
-      "soft_ratio": 0.8,
+      "soft_ratio": 0.85,
     },
   )
 
