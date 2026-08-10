@@ -8,6 +8,6 @@ python scripts/train.py TK3-Tracking \
   --agent.logger wandb \
   --agent.wandb-project tk3-tracking-mjlab \
   --agent.run-name "dexevt-100hz" \
-  --agent.resume \
+  --agent.resume True \
   --agent.load-run "2026-08-09_01-04-07_dexevt-100hz-天工的pd和scale-16384" \
   --agent.load-checkpoint "model_49500.pt"
