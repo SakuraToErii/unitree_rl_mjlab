@@ -36,7 +36,11 @@ class PlayConfig:
   camera: int | str | None = None
   viewer: Literal["auto", "native", "viser"] = "auto"
   no_terminations: bool = False
-  """Disable all termination conditions (useful for viewing motions with dummy agents)."""
+  """Disable all termination conditions (useful for viewing motions with dummy agents).
+
+  mjlab enables tyro FlagConversionOff, so pass an explicit value:
+  ``--no-terminations True`` (bare ``--no-terminations`` is rejected).
+  """
   log_root: str = "logs/rsl_rl"
   """Root directory under which experiment logs are written."""
 

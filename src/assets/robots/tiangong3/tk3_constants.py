@@ -14,7 +14,9 @@ TK3_XML: Path = (
   SRC_PATH / "assets" / "robots" / "tiangong3" / "xmls" / "tiangong3.xml"
 )
 TK3_MESH_DIR: Path = TK3_XML.parent.parent / "meshes"
-TK3_BASE_HEIGHT = 0.95
+# Pelvis height for HOME joint angles so foot collision cylinders clear z=0.
+# With z=0.95 the soles sit ~4.9 cm below the plane; 0.999 keeps the same pose.
+TK3_BASE_HEIGHT = 0.998
 
 assert TK3_XML.exists()
 assert TK3_MESH_DIR.exists()
@@ -31,7 +33,7 @@ def get_spec() -> mujoco.MjSpec:
 # Effort limits follow its torque-control actuator ctrlrange values. The
 # deployment position actuators are intentionally not retained in the training
 # MJCF: MJLab creates exactly one position actuator for every policy joint.
-NATURAL_FREQ = 5.0 * 2.0 * 3.1415926535
+NATURAL_FREQ = 8.0 * 2.0 * 3.1415926535
 DAMPING_RATIO = 2.0
 FRICTIONLOSS = 0.1
 TK3_COMMAND_DELAY_MIN_LAG = 0
@@ -203,7 +205,7 @@ FULL_COLLISION = CollisionCfg(
 
 TK3_ARTICULATION = EntityArticulationInfoCfg(
   actuators=TK3_ACTUATORS,
-  soft_joint_pos_limit_factor=0.9,
+  soft_joint_pos_limit_factor=0.95,
 )
 
 
@@ -224,7 +226,7 @@ for actuator in TK3_ACTUATORS:
   effort = actuator.effort_limit
   assert effort is not None
   for name_expr in actuator.target_names_expr:
-    TK3_ACTION_SCALE[name_expr] = 0.25 * effort / actuator.stiffness
+    TK3_ACTION_SCALE[name_expr] = 0.25 #* effort / actuator.stiffness
 
 
 if __name__ == "__main__":

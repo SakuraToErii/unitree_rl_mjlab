@@ -26,15 +26,15 @@
     <motor name="shoulder_yaw_l" joint="shoulder_yaw_l_joint" ctrlrange="-50 50"/>
     <motor name="elbow_pitch_l" joint="elbow_pitch_l_joint" ctrlrange="-50 50"/>
     <motor name="elbow_yaw_l" joint="elbow_yaw_l_joint" ctrlrange="-25 25"/>
-    <motor name="wrist_pitch_l" joint="wrist_pitch_l_joint" ctrlrange="-25 25"/>
-    <motor name="wrist_roll_l" joint="wrist_roll_l_joint" ctrlrange="-25 25"/>
+    <motor name="wrist_pitch_l" joint="wrist_pitch_l_joint" ctrlrange="-40 40"/>
+    <motor name="wrist_roll_l" joint="wrist_roll_l_joint" ctrlrange="-40 40"/>
     <motor name="shoulder_pitch_r" joint="shoulder_pitch_r_joint" ctrlrange="-90 90"/>
     <motor name="shoulder_roll_r" joint="shoulder_roll_r_joint" ctrlrange="-90 90"/>
     <motor name="shoulder_yaw_r" joint="shoulder_yaw_r_joint" ctrlrange="-50 50"/>
     <motor name="elbow_pitch_r" joint="elbow_pitch_r_joint" ctrlrange="-50 50"/>
     <motor name="elbow_yaw_r" joint="elbow_yaw_r_joint" ctrlrange="-25 25"/>
-    <motor name="wrist_pitch_r" joint="wrist_pitch_r_joint" ctrlrange="-25 25"/>
-    <motor name="wrist_roll_r" joint="wrist_roll_r_joint" ctrlrange="-25 25"/>
+    <motor name="wrist_pitch_r" joint="wrist_pitch_r_joint" ctrlrange="-40 40"/>
+    <motor name="wrist_roll_r" joint="wrist_roll_r_joint" ctrlrange="-40 40"/>
   </actuator>
 
   <sensor>

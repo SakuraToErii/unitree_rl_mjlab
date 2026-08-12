@@ -106,7 +106,7 @@ def tk3_flat_tracking_env_cfg(
   cfg.events["foot_friction"].params[
     "asset_cfg"
   ].geom_names = FOOT_GEOM_PATTERN
-  cfg.events["foot_friction"].params["ranges"] = (0.3, 1.8)
+
   cfg.scene.terrain.collisions = (
     CollisionCfg(
       geom_names_expr=(r"^terrain$",),
@@ -115,14 +115,14 @@ def tk3_flat_tracking_env_cfg(
       friction=(TK3_NOMINAL_FOOT_GROUND_FRICTION,),
     ),
   )
-  cfg.events["foot_friction"].params["shared_random"] = True
+
   cfg.events["ground_friction"] = EventTermCfg(
     func=dr.geom_friction,
     mode="startup",
     params={
       "asset_cfg": SceneEntityCfg("terrain", geom_names=r"^terrain$"),
       "operation": "abs",
-      "ranges": (0.1, 1.0),
+      "ranges": (0.25, 0.8),
       "shared_random": True,
     },
   )
@@ -166,8 +166,8 @@ def tk3_flat_tracking_env_cfg(
     mode="startup",
     func=dr.joint_friction,
     params={
-      "ranges": (0.01, 0.6),
-      "operation": "abs",
+      "ranges": (0.3, 3),
+      "operation": "scale",
     },
   )
   cfg.terminations["ee_body_pos"].params["body_names"] = (
@@ -186,16 +186,6 @@ def tk3_flat_tracking_env_cfg(
     func=mdp.motion_joint_velocity_error_exp,
     weight=0.5,
     params={"command_name": "motion", "std": math.sqrt(5.0)},
-  )
-
-  cfg.rewards["raw_action_torque_limit"] = RewardTermCfg(
-    func=mdp.raw_action_torque_limit_penalty,
-    weight=-2.0,
-    params={
-      "action_name": "joint_pos",
-      "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
-      "soft_ratio": 0.85,
-    },
   )
 
   cfg.viewer.body_name = "pelvis"
