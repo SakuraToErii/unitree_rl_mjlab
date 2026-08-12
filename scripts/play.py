@@ -16,8 +16,15 @@ from mjlab.utils.torch import configure_torch_backends
 from mjlab.utils.wrappers import VideoRecorder
 from mjlab.viewer import NativeMujocoViewer, ViserPlayViewer
 
-from src.tasks.tracking.mdp import MotionCommandCfg
-from src.tasks.tracking.rl import MotionTrackingOnPolicyRunner
+from src.tasks.ghost.mdp import MotionCommandCfg as GhostMotionCommandCfg
+from src.tasks.ghost.rl import MotionTrackingOnPolicyRunner as GhostTrackingRunner
+from src.tasks.tracking.mdp import MotionCommandCfg as TrackingMotionCommandCfg
+from src.tasks.tracking.rl import (
+  MotionTrackingOnPolicyRunner as TrackingMotionTrackingRunner,
+)
+
+_MOTION_COMMAND_CFG_TYPES = (TrackingMotionCommandCfg, GhostMotionCommandCfg)
+_MOTION_TRACKING_RUNNER_TYPES = (TrackingMotionTrackingRunner, GhostTrackingRunner)
 
 
 @dataclass(frozen=True)
@@ -66,18 +73,18 @@ def run_play(task_id: str, cfg: PlayConfig):
 
   # Check if this is a tracking task by checking for motion command.
   is_tracking_task = "motion" in env_cfg.commands and isinstance(
-    env_cfg.commands["motion"], MotionCommandCfg
+    env_cfg.commands["motion"], _MOTION_COMMAND_CFG_TYPES
   )
 
   if is_tracking_task and cfg._demo_mode:
     # Demo mode: use uniform sampling to see more diversity with num_envs > 1.
     motion_cmd = env_cfg.commands["motion"]
-    assert isinstance(motion_cmd, MotionCommandCfg)
+    assert isinstance(motion_cmd, _MOTION_COMMAND_CFG_TYPES)
     motion_cmd.sampling_mode = "uniform"
 
   if is_tracking_task:
     motion_cmd = env_cfg.commands["motion"]
-    assert isinstance(motion_cmd, MotionCommandCfg)
+    assert isinstance(motion_cmd, _MOTION_COMMAND_CFG_TYPES)
 
     if cfg.motion_file is None:
       raise ValueError("Tracking tasks require --motion-file /path/to/motion.npz.")
@@ -164,7 +171,7 @@ def run_play(task_id: str, cfg: PlayConfig):
     )
     policy = runner.get_inference_policy(device=device)
     if is_tracking_task:
-      if not isinstance(runner, MotionTrackingOnPolicyRunner):
+      if not isinstance(runner, _MOTION_TRACKING_RUNNER_TYPES):
         raise TypeError(
           "Tracking play requires MotionTrackingOnPolicyRunner for ONNX export"
         )
