@@ -4,10 +4,10 @@ python scripts/gmr_to_npz_inter.py \
   --input_fps 120 \
   --output_fps 100 \
   --frame_range 5 9999999999 \
-  --output_name 1-1_paddingv2_0.95range \
+  --output_name 1-1_paddingv2\
   --output_dir ./datasets \
   --start_frames 240 \
   --end_frames 240 \
   --hold_pos 360 \
-  --joint_limit_factor 0.95 \
+  --joint_limit_factor 1.0 \
   --correct_root_pose_coupled

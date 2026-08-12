@@ -158,6 +158,15 @@ def _so3_derivative(quat_wxyz: np.ndarray, dt: float) -> np.ndarray:
   return angular_velocity
 
 
+def _world_to_body_angular_velocity(
+  quat_wxyz: np.ndarray,
+  angular_velocity_w: np.ndarray,
+) -> np.ndarray:
+  """Convert world-frame angular velocity to MuJoCo free-joint coordinates."""
+  rotations = R.from_quat(_wxyz_to_xyzw(quat_wxyz))
+  return rotations.inv().apply(np.asarray(angular_velocity_w, dtype=np.float64))
+
+
 def _resolve_default_joint_pos(
   joint_names: list[str], joint_patterns: dict[str, float]
 ) -> np.ndarray:
@@ -885,7 +894,11 @@ def _sample_mujoco_kinematics(
   body_quat = np.empty((frame_count, body_count, 4), dtype=np.float32)
   body_lin_vel = np.empty((frame_count, body_count, 3), dtype=np.float32)
   body_ang_vel = np.empty((frame_count, body_count, 3), dtype=np.float32)
-  spatial_velocity = np.empty(6, dtype=np.float64)
+  root_ang_vel_b = _world_to_body_angular_velocity(
+    motion.root_quat,
+    motion.root_ang_vel,
+  )
+  root_body_id = body_ids[0]
 
   for frame in tqdm(
     range(frame_count), desc="MuJoCo forward kinematics", unit="frame"
@@ -895,7 +908,7 @@ def _sample_mujoco_kinematics(
     data.qpos[free_qpos_adr : free_qpos_adr + 3] = motion.root_pos[frame]
     data.qpos[free_qpos_adr + 3 : free_qpos_adr + 7] = motion.root_quat[frame]
     data.qvel[free_dof_adr : free_dof_adr + 3] = motion.root_lin_vel[frame]
-    data.qvel[free_dof_adr + 3 : free_dof_adr + 6] = motion.root_ang_vel[frame]
+    data.qvel[free_dof_adr + 3 : free_dof_adr + 6] = root_ang_vel_b[frame]
     data.qpos[joint_qpos_adrs] = motion.joint_pos[frame]
     data.qvel[joint_dof_adrs] = motion.joint_vel[frame]
     mujoco.mj_forward(model, data)
@@ -903,16 +916,16 @@ def _sample_mujoco_kinematics(
     body_pos[frame] = data.xpos[body_ids]
     body_quat[frame] = data.xquat[body_ids]
     for body_index, body_id in enumerate(body_ids):
-      mujoco.mj_objectVelocity(
-        model,
-        data,
-        mujoco.mjtObj.mjOBJ_BODY,
-        body_id,
-        spatial_velocity,
-        0,
+      angular_velocity_w = data.cvel[body_id, :3]
+      velocity_at_subtree_com_w = data.cvel[body_id, 3:]
+      subtree_com_to_link = (
+        data.subtree_com[root_body_id] - data.xpos[body_id]
       )
-      body_ang_vel[frame, body_index] = spatial_velocity[:3]
-      body_lin_vel[frame, body_index] = spatial_velocity[3:]
+      body_ang_vel[frame, body_index] = angular_velocity_w
+      body_lin_vel[frame, body_index] = (
+        velocity_at_subtree_com_w
+        - np.cross(angular_velocity_w, subtree_com_to_link)
+      )
 
   return {
     "joint_pos": motion.joint_pos.astype(np.float32),
