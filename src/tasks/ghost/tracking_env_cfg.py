@@ -61,8 +61,8 @@ def make_tracking_env_cfg() -> ManagerBasedRlEnvCfg:
           "allowed_body_names": (
             "ankle_roll_l_link",
             "ankle_roll_r_link",
-            "wrist_pitch_l_link",
-            "wrist_pitch_r_link",
+            "left_tcp_link",
+            "right_tcp_link",
           ),
           "force_scale": 100.0,
           "force_threshold": 1.0,
@@ -197,15 +197,20 @@ def make_tracking_env_cfg() -> ManagerBasedRlEnvCfg:
       weight=-10.0,
       params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
     ),
-    # 非足/非手撑地接触惩罚（默认末端名按 TK3；机器人配置可覆盖）
+    # 非足/非手撑地接触惩罚（默认末端名按 TK3；机器人配置可覆盖）。
+    # 头顶地走 waist_pitch_link 碰撞 mesh，计入本项软惩罚，不设对应 termination。
     "undesired_ground_contacts": RewardTermCfg(
       func=mdp.undesired_ground_contact_cost,
-      weight=-0.1,
+      weight=-1.0,
       params={
         "sensor_name": "ground_contact",
         "allowed_body_names": (
           "ankle_roll_l_link",
           "ankle_roll_r_link",
+          "left_tcp_link",
+          "right_tcp_link",
+          # Wrist shells may touch during hand-supported transitions; do not
+          # count those contacts as undesired even though TCP is the endpoint.
           "wrist_pitch_l_link",
           "wrist_pitch_r_link",
         ),
@@ -247,7 +252,7 @@ def make_tracking_env_cfg() -> ManagerBasedRlEnvCfg:
       func=mdp.nonfinite_robot_state,
       params={"asset_cfg": SceneEntityCfg("robot")},
     ),
-    # 硬关节限位违规
+    # 硬关节限位违规：只保留软限位惩罚，越硬限位不再早停。
     "hard_joint_limit": TerminationTermCfg(
       func=mdp.hard_joint_limit_violation,
       params={

@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import math
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 import mujoco
 import numpy as np
@@ -302,6 +302,13 @@ class MotionCommand(CommandTerm):
     # Ghost model created lazily on first visualization
     self._ghost_model: mujoco.MjModel | None = None
     self._ghost_color = np.array(cfg.viz.ghost_color, dtype=np.float32)
+    self._gui_slider = None
+    self._gui_status = None
+    self._gui_get_env_idx: Callable[[], int] | None = None
+    self._gui_requested_frame = 0
+    self._gui_updating = False
+    self._gui_seek_pending = False
+    self._gui_last_synced_frame = -1
 
   @property
   def command(self) -> torch.Tensor:
@@ -807,6 +814,124 @@ class MotionCommand(CommandTerm):
         + (1 - self.cfg.adaptive_alpha) * self.bin_failed_count
       )
       self._current_bin_failed.zero_()
+    self._sync_gui_progress()
+
+  def create_gui(
+    self,
+    name: str,
+    server: Any,
+    get_env_idx: Callable[[], int],
+    on_change: Callable[[], None] | None = None,
+    request_action: Callable[[str, Any], None] | None = None,
+  ) -> None:
+    """Create a motion timeline that can respawn the robot at any frame."""
+    del name
+    self._gui_get_env_idx = get_env_idx
+    total = self.motion.time_step_total
+    self._gui_status = server.gui.add_html("")
+    self._gui_slider = server.gui.add_slider(
+      "Motion progress",
+      min=0,
+      max=total - 1,
+      step=1,
+      initial_value=0,
+    )
+
+    @self._gui_slider.on_update
+    def _on_slider(event) -> None:
+      if self._gui_updating:
+        return
+      self._gui_requested_frame = int(event.target.value)
+      self._gui_seek_pending = True
+      self._update_gui_status(self._gui_requested_frame)
+      if on_change is not None:
+        on_change()
+
+    spawn_button = server.gui.add_button("Spawn at selected frame")
+
+    @spawn_button.on_click
+    def _on_spawn(_) -> None:
+      if request_action is not None:
+        request_action(
+          "CUSTOM",
+          {"type": "gui_reset", "all_envs": False},
+        )
+
+    self._update_gui_status(0)
+
+  def _update_gui_status(self, frame: int) -> None:
+    if self._gui_status is None:
+      return
+    total = self.motion.time_step_total
+    fps = self.motion.fps
+    self._gui_status.content = (
+      f"<b>Frame:</b> {frame:,} / {total - 1:,}<br/>"
+      f"<b>Time:</b> {frame / fps:.2f} s / {(total - 1) / fps:.2f} s"
+    )
+
+  def _sync_gui_progress(self) -> None:
+    if self._gui_slider is None or self._gui_get_env_idx is None:
+      return
+    if self._gui_seek_pending:
+      return
+    env_idx = min(max(self._gui_get_env_idx(), 0), self.num_envs - 1)
+    frame = int(self.time_steps[env_idx].item())
+    if frame == self._gui_last_synced_frame:
+      return
+    sync_interval = max(1, round(self.motion.fps / 10.0))
+    if (
+      self._gui_last_synced_frame >= 0
+      and frame > self._gui_last_synced_frame
+      and frame - self._gui_last_synced_frame < sync_interval
+    ):
+      return
+    self._gui_last_synced_frame = frame
+    self._gui_requested_frame = frame
+    self._gui_updating = True
+    try:
+      self._gui_slider.value = frame
+      self._update_gui_status(frame)
+    finally:
+      self._gui_updating = False
+
+  def apply_gui_reset(self, env_ids: torch.Tensor) -> bool:
+    """Respawn selected environments at the timeline's requested frame."""
+    frame = min(
+      max(self._gui_requested_frame, 0),
+      self.motion.time_step_total - 1,
+    )
+    self.time_steps[env_ids] = frame
+    joint_pos = self.joint_pos[env_ids].clone()
+    joint_vel = self.joint_vel[env_ids].clone()
+    limits = self.robot.data.soft_joint_pos_limits[env_ids]
+    joint_pos = torch.clamp(
+      joint_pos,
+      min=limits[:, :, 0],
+      max=limits[:, :, 1],
+    )
+    root_state = torch.cat(
+      [
+        self.body_pos_w[env_ids, 0],
+        self.body_quat_w[env_ids, 0],
+        self.body_lin_vel_w[env_ids, 0],
+        self.body_ang_vel_w[env_ids, 0],
+      ],
+      dim=-1,
+    )
+    self.robot.write_joint_state_to_sim(
+      joint_pos, joint_vel, env_ids=env_ids
+    )
+    self.robot.write_root_state_to_sim(root_state, env_ids=env_ids)
+    self._reset_robot_and_randomize_actuator_command_lag(env_ids)
+    self._set_body_targets(
+      env_ids,
+      root_state[:, :3],
+      root_state[:, 3:7],
+    )
+    self._gui_last_synced_frame = -1
+    self._gui_seek_pending = False
+    self._sync_gui_progress()
+    return True
 
   def _resample_command_noise(
     self, env_ids: torch.Tensor, *, reset_timer: bool

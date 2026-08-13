@@ -16,7 +16,9 @@ from mjlab.utils.torch import configure_torch_backends
 from mjlab.utils.wrappers import VideoRecorder
 from mjlab.viewer import NativeMujocoViewer, ViserPlayViewer
 
+from src.tasks.ghost.mdp import MotionCommand as GhostMotionCommand
 from src.tasks.ghost.mdp import MotionCommandCfg as GhostMotionCommandCfg
+from src.tasks.ghost.onnx_policy import OnnxGhostPolicy
 from src.tasks.ghost.rl import MotionTrackingOnPolicyRunner as GhostTrackingRunner
 from src.tasks.tracking.mdp import MotionCommandCfg as TrackingMotionCommandCfg
 from src.tasks.tracking.rl import (
@@ -95,12 +97,14 @@ def run_play(task_id: str, cfg: PlayConfig):
     motion_cmd.motion_file = str(motion_path)
   log_dir: Path | None = None
   resume_path: Path | None = None
+  use_onnx = False
   if TRAINED_MODE:
     log_root_path = (Path(cfg.log_root) / agent_cfg.experiment_name).resolve()
     if cfg.checkpoint_file is not None:
-      resume_path = Path(cfg.checkpoint_file)
+      resume_path = Path(cfg.checkpoint_file).expanduser().resolve()
       if not resume_path.exists():
         raise FileNotFoundError(f"Checkpoint file not found: {resume_path}")
+      use_onnx = resume_path.suffix.lower() == ".onnx"
       print(f"[INFO]: Loading checkpoint: {resume_path.name}")
     else:
       if cfg.wandb_run_path is None:
@@ -119,7 +123,15 @@ def run_play(task_id: str, cfg: PlayConfig):
       )
     log_dir = resume_path.parent
 
-  if cfg.num_envs is not None:
+  if use_onnx:
+    if not is_tracking_task or not isinstance(
+      env_cfg.commands.get("motion"), GhostMotionCommandCfg
+    ):
+      raise ValueError("ONNX play is currently supported only for Ghost tracking tasks.")
+    if cfg.num_envs not in (None, 1):
+      raise ValueError("ONNX Ghost play requires --num-envs 1.")
+    env_cfg.scene.num_envs = 1
+  elif cfg.num_envs is not None:
     env_cfg.scene.num_envs = cfg.num_envs
   if cfg.video_height is not None:
     env_cfg.viewer.height = cfg.video_height
@@ -163,6 +175,13 @@ def run_play(task_id: str, cfg: PlayConfig):
           return 2 * torch.rand(action_shape, device=env.unwrapped.device) - 1
 
       policy = PolicyRandom()
+  elif use_onnx:
+    assert resume_path is not None
+    command = env.unwrapped.command_manager.get_term("motion")
+    if not isinstance(command, GhostMotionCommand):
+      raise TypeError("ONNX play requires a Ghost MotionCommand instance.")
+    policy = OnnxGhostPolicy(resume_path, command, device=device)
+    print(f"[INFO]: Using ONNX Ghost policy: {resume_path}")
   else:
     runner_cls = load_runner_cls(task_id) or MjlabOnPolicyRunner
     runner = runner_cls(env, asdict(agent_cfg), device=device)

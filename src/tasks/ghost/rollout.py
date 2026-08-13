@@ -22,6 +22,8 @@ if TYPE_CHECKING:
 _ALLOWED_CONTACT_BODIES = {
   "ankle_roll_l_link",
   "ankle_roll_r_link",
+  "left_tcp_link",
+  "right_tcp_link",
   "wrist_pitch_l_link",
   "wrist_pitch_r_link",
 }

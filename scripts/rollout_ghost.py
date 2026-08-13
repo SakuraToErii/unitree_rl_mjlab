@@ -18,7 +18,8 @@ from src.assets.robots.tiangong3.tk3_constants_ghost import (
   TK3_GHOST_CONFIG,
   TK3_XML,
 )
-from src.tasks.ghost.mdp import MotionCommandCfg
+from src.tasks.ghost.mdp import MotionCommand, MotionCommandCfg
+from src.tasks.ghost.onnx_policy import OnnxGhostPolicy
 from src.tasks.ghost.rollout import (
   PhysicsRolloutRecorder,
   save_rollout,
@@ -62,15 +63,25 @@ def run_rollout(task_id: str, cfg: RolloutConfig) -> tuple[Path, Path]:
   raw_env = ManagerBasedRlEnv(cfg=env_cfg, device=device)
   env = RslRlVecEnvWrapper(raw_env, clip_actions=agent_cfg.clip_actions)
   try:
-    runner_cls = load_runner_cls(task_id) or MjlabOnPolicyRunner
-    runner = runner_cls(env, asdict(agent_cfg), device=device)
-    runner.load(
-      str(checkpoint_path),
-      load_cfg={"actor": True},
-      strict=True,
-      map_location=device,
-    )
-    policy = runner.get_inference_policy(device=device)
+    command = raw_env.command_manager.get_term("motion")
+    if not isinstance(command, MotionCommand):
+      raise TypeError("Ghost rollout requires a MotionCommand instance.")
+    if checkpoint_path.suffix.lower() == ".onnx":
+      policy = OnnxGhostPolicy(
+        checkpoint_path,
+        command,
+        device=device,
+      )
+    else:
+      runner_cls = load_runner_cls(task_id) or MjlabOnPolicyRunner
+      runner = runner_cls(env, asdict(agent_cfg), device=device)
+      runner.load(
+        str(checkpoint_path),
+        load_cfg={"actor": True},
+        strict=True,
+        map_location=device,
+      )
+      policy = runner.get_inference_policy(device=device)
     obs = env.get_observations()
     recorder = PhysicsRolloutRecorder(raw_env)
 
