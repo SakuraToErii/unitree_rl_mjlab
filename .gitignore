@@ -17,5 +17,7 @@ __pycache__/
 !src/assets/robots/tiangong3/meshes/*.STL
 !src/assets/robots/tiangong3/meshes_convex/*.STL
 datasets
+*.sh
+!.agents/**/*.sh
 tests/*
 !tests/test_mjlab_compat.py
