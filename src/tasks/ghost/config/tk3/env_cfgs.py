@@ -74,10 +74,10 @@ def tk3_flat_tracking_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     "elbow_pitch_r_link",
     "wrist_roll_r_link",
   )
-  # Stage I：关闭执行器指令延迟随机化（物理 DR 整体关闭）
+  # Stage I uses nominal actuator timing without physical randomization.
   motion_cmd.actuator_command_lag_range = None
-  # 100 Hz preview: now, 50 ms, 100 ms and 200 ms. qdot already describes
-  # the near-term 20 ms trend, so that highly correlated horizon is omitted.
+  # 100 Hz preview: now, 50 ms, and 100 ms. qdot already describes the
+  # near-term trend, so a more highly correlated horizon is omitted.
   motion_cmd.preview_frame_offsets = (0, 5, 10)
   motion_cmd.preview_body_names = (
     "ankle_roll_l_link",
@@ -132,4 +132,13 @@ def tk3_flat_tracking_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     motion_cmd.sampling_mode = "start"
     motion_cmd.command_noise_enabled = False
 
+  return cfg
+
+
+def tk3_assault_tracking_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Create the clip-assault config with relaxed training boundaries."""
+  cfg = tk3_flat_tracking_env_cfg(play=play)
+  if not play:
+    cfg.episode_length_s = 7.0
+    del cfg.terminations["hard_joint_limit"]
   return cfg

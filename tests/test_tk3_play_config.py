@@ -8,6 +8,9 @@ from collections.abc import Callable
 from mjlab.envs import ManagerBasedRlEnvCfg
 
 from src.tasks.ghost.config.tk3.env_cfgs import (
+  tk3_assault_tracking_env_cfg,
+)
+from src.tasks.ghost.config.tk3.env_cfgs import (
   tk3_flat_tracking_env_cfg as tk3_ghost_tracking_env_cfg,
 )
 from src.tasks.tracking.config.tk3.env_cfgs import (
@@ -42,6 +45,18 @@ class TestTk3PlayConfig(unittest.TestCase):
           "hard_joint_limit",
         },
       ),
+      (
+        "ghost-assault",
+        tk3_assault_tracking_env_cfg,
+        7.0,
+        {
+          "time_out",
+          "anchor_pos",
+          "anchor_ori",
+          "ee_body_pos",
+          "nonfinite_state",
+        },
+      ),
     )
 
     for name, env_cfg_factory, episode_length_s, termination_names in cases:
@@ -56,6 +71,7 @@ class TestTk3PlayConfig(unittest.TestCase):
     cases: tuple[tuple[str, EnvCfgFactory], ...] = (
       ("production", tk3_tracking_env_cfg),
       ("ghost", tk3_ghost_tracking_env_cfg),
+      ("ghost-assault", tk3_assault_tracking_env_cfg),
     )
 
     for name, env_cfg_factory in cases:
