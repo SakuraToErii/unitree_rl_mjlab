@@ -17,10 +17,6 @@ TK3_SPEC_CONFIG: Path = Path(__file__)
 # slightly lower than the left sole in the nominal joint pose.
 TK3_BASE_HEIGHT = 1.0
 TK3_NOMINAL_FOOT_GROUND_FRICTION = 1.0
-# Firm rubber: a 15 ms critically damped contact with a 3 mm impedance
-# transition. This permits small elastic compression without a bouncy sole.
-TK3_CONVEX_SOLE_SOLREF = (0.015, 1.0)
-TK3_CONVEX_SOLE_SOLIMP = (0.9, 0.98, 0.003, 0.5, 2.0)
 
 assert TK3_XML.exists()
 assert TK3_MESH_DIR.exists()
@@ -176,8 +172,6 @@ def _replace_xml_feet_with_convex_soles(spec: mujoco.MjSpec) -> None:
       condim=3,
       priority=2,
       friction=(TK3_NOMINAL_FOOT_GROUND_FRICTION, 0.005, 0.0001),
-      solref=TK3_CONVEX_SOLE_SOLREF,
-      solimp=TK3_CONVEX_SOLE_SOLIMP,
       density=0.0,
       group=3,
       rgba=(0.15, 0.15, 0.15, 1.0),

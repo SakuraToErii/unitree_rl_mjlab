@@ -30,11 +30,7 @@ from src.assets.robots.tiangong3.tk3_constants_ghost import (
   get_tk3_robot_cfg as get_tk3_ghost_robot_cfg,
 )
 from src.assets.robots.tiangong3.tk3_selection import select_tk3_robot_cfg
-from src.assets.robots.tiangong3.tk3_spec import (
-  TK3_BASE_HEIGHT,
-  TK3_CONVEX_SOLE_SOLIMP,
-  TK3_CONVEX_SOLE_SOLREF,
-)
+from src.assets.robots.tiangong3.tk3_spec import TK3_BASE_HEIGHT
 
 _SCRIPTS_DIR = Path(__file__).parents[1] / "scripts"
 
@@ -69,8 +65,8 @@ XML_FOOT_GEOMS = {
 }
 SOLE_FOOT_GEOMS = {"foot_left_sole", "foot_right_sole"}
 SOLE_MESHES = {"tk3_left_sole_collision", "tk3_right_sole_collision"}
-XML_FOOT_SOLREF = (0.02, 1.0)
-XML_FOOT_SOLIMP = (0.9, 0.95, 0.001, 0.5, 2.0)
+MUJOCO_DEFAULT_SOLREF = (0.02, 1.0)
+MUJOCO_DEFAULT_SOLIMP = (0.9, 0.95, 0.001, 0.5, 2.0)
 
 
 def _foot_geom_names(model: mujoco.MjModel) -> set[str]:
@@ -176,7 +172,7 @@ class Tk3FootConfigurationTest(unittest.TestCase):
         self.assertTrue(SOLE_MESHES.isdisjoint(_mesh_names(xml_model)))
         self.assertTrue(SOLE_MESHES <= _mesh_names(sole_model))
 
-  def test_sole_contact_parameters_do_not_override_xml_feet(self) -> None:
+  def test_foot_contact_parameters_use_mujoco_defaults(self) -> None:
     for robot_cfg_factory in ROBOT_CFG_FACTORIES:
       with self.subTest(robot_cfg_factory=robot_cfg_factory.__module__):
         xml_model = Entity(
@@ -189,18 +185,18 @@ class Tk3FootConfigurationTest(unittest.TestCase):
         for geom_name in XML_FOOT_GEOMS:
           geom_id = xml_model.geom(geom_name).id
           np.testing.assert_allclose(
-            xml_model.geom_solref[geom_id], XML_FOOT_SOLREF
+            xml_model.geom_solref[geom_id], MUJOCO_DEFAULT_SOLREF
           )
           np.testing.assert_allclose(
-            xml_model.geom_solimp[geom_id], XML_FOOT_SOLIMP
+            xml_model.geom_solimp[geom_id], MUJOCO_DEFAULT_SOLIMP
           )
         for geom_name in SOLE_FOOT_GEOMS:
           geom_id = sole_model.geom(geom_name).id
           np.testing.assert_allclose(
-            sole_model.geom_solref[geom_id], TK3_CONVEX_SOLE_SOLREF
+            sole_model.geom_solref[geom_id], MUJOCO_DEFAULT_SOLREF
           )
           np.testing.assert_allclose(
-            sole_model.geom_solimp[geom_id], TK3_CONVEX_SOLE_SOLIMP
+            sole_model.geom_solimp[geom_id], MUJOCO_DEFAULT_SOLIMP
           )
 
   def test_home_pose_clears_ground(self) -> None:
