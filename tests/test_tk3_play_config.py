@@ -29,7 +29,12 @@ class TestTk3PlayConfig(unittest.TestCase):
     joint_friction = cfg.events["joint_friction"]
     self.assertEqual(joint_friction.params["ranges"], (0.1, 6))
     self.assertEqual(joint_friction.params["operation"], "scale")
-    self.assertEqual(cfg.sim.nconmax, 128)
+    self.assertEqual(cfg.sim.nconmax, 70)
+    self.assertEqual(cfg.sim.mujoco.ccd_iterations, 100)
+
+    ghost_cfg = tk3_ghost_tracking_env_cfg()
+    self.assertEqual(ghost_cfg.sim.nconmax, 70)
+    self.assertEqual(ghost_cfg.sim.mujoco.ccd_iterations, 50)
 
   def test_training_preserves_termination_policy(self) -> None:
     """Training variants must retain their intended reset boundaries."""

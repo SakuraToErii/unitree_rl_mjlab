@@ -114,7 +114,7 @@ def tk3_flat_tracking_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # simulation step, decimation=2 keeps one policy step per motion frame.
   cfg.decimation = 2
   cfg.episode_length_s = 20.0
-  cfg.sim.nconmax = 128
+  cfg.sim.nconmax = 70
   cfg.sim.contact_sensor_maxmatch = 500
 
   if play:

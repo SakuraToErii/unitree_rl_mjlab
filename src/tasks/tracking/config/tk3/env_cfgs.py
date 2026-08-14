@@ -240,8 +240,7 @@ def tk3_flat_tracking_env_cfg(
   cfg.decimation = 2
   cfg.episode_length_s = 20.0
   # Leave headroom for simultaneous foot, terrain, and self contacts.
-  cfg.sim.nconmax = 128
-  # MujocoCfg default is 50; match Tiangong3-mjlab for denser CCD.
+  cfg.sim.nconmax = 70
   cfg.sim.mujoco.ccd_iterations = 100
 
   if not has_state_estimation:
