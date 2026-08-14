@@ -17,6 +17,10 @@ from mjlab.utils.os import dump_yaml, get_checkpoint_path, get_wandb_checkpoint_
 from mjlab.utils.torch import configure_torch_backends
 from mjlab.utils.wrappers import VideoRecorder
 
+from src.assets.robots.tiangong3.tk3_selection import (
+  FootCollision,
+  select_tk3_robot_cfg,
+)
 from src.tasks.ghost.mdp import MotionCommandCfg as GhostMotionCommandCfg
 from src.tasks.tracking.mdp import MotionCommandCfg as TrackingMotionCommandCfg
 
@@ -38,6 +42,12 @@ class TrainConfig:
   wandb_run_path: str | None = None
   wandb_checkpoint_name: str | None = None
   gpu_ids: list[int] | Literal["all"] | None = field(default_factory=lambda: [0])
+  foot: FootCollision | None = None
+  """Optional TK3 foot collision override.
+
+  ``None`` preserves the task's registered robot configuration; ``sole`` uses
+  the convex rubber mesh and ``xml`` uses the original MJCF cylinder rails.
+  """
 
   @staticmethod
   def from_task(task_id: str) -> "TrainConfig":
@@ -65,6 +75,10 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
 
   cfg.agent.seed = seed
   cfg.env.seed = seed
+  robot_cfg = select_tk3_robot_cfg(task_id, foot=cfg.foot)
+  if robot_cfg is not None:
+    cfg.env.scene.entities["robot"] = robot_cfg
+    print(f"[INFO]: TK3 feet: {cfg.foot}")
 
   print(f"[INFO] Training with: device={device}, seed={seed}, rank={rank}")
 

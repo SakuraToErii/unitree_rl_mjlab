@@ -1,30 +1,28 @@
 """TienKung 3 29-DoF robot asset and actuator configuration."""
 
-from pathlib import Path
+from functools import partial
 
 import mujoco
 from mjlab.actuator import BuiltinPositionActuatorCfg
 from mjlab.entity import EntityArticulationInfoCfg, EntityCfg
 from mjlab.utils.spec_config import CollisionCfg
 
-from src import SRC_PATH
-
-# MJCF and assets.
-TK3_XML: Path = (
-  SRC_PATH / "assets" / "robots" / "tiangong3" / "xmls" / "tiangong3.xml"
+from src.assets.robots.tiangong3.tk3_spec import (
+  TK3_BASE_HEIGHT,
+  TK3_NOMINAL_FOOT_GROUND_FRICTION,
 )
-TK3_MESH_DIR: Path = TK3_XML.parent.parent / "meshes"
-# Pelvis height for HOME joint angles so foot collision cylinders clear z=0.
-# With z=0.95 the soles sit ~4.9 cm below the plane; 0.999 keeps the same pose.
-TK3_BASE_HEIGHT = 0.998
+from src.assets.robots.tiangong3.tk3_spec import TK3_MESH_DIR as _TK3_MESH_DIR
+from src.assets.robots.tiangong3.tk3_spec import TK3_XML as _TK3_XML
+from src.assets.robots.tiangong3.tk3_spec import get_spec as _get_spec
 
-assert TK3_XML.exists()
-assert TK3_MESH_DIR.exists()
+# Preserve the asset-path exports used by existing scripts.
+TK3_MESH_DIR = _TK3_MESH_DIR
+TK3_XML = _TK3_XML
 
 
-def get_spec() -> mujoco.MjSpec:
-  """Return a fresh robot-only MuJoCo spec."""
-  return mujoco.MjSpec.from_file(str(TK3_XML))
+def get_spec(*, convex_sole: bool = False) -> mujoco.MjSpec:
+  """Return a fresh production spec, using XML feet by default."""
+  return _get_spec(convex_sole=convex_sole)
 
 
 # Actuator configuration.
@@ -192,7 +190,6 @@ HOME_KEYFRAME = EntityCfg.InitialStateCfg(
 # Collision configuration.
 FOOT_GEOM_PATTERN = r"^foot_(left|right)_.*$"
 COLLISION_GEOM_PATTERN = r".*_collision(?:_[0-9]+)?$"
-TK3_NOMINAL_FOOT_GROUND_FRICTION = 1.0
 
 FULL_COLLISION = CollisionCfg(
   geom_names_expr=(COLLISION_GEOM_PATTERN, FOOT_GEOM_PATTERN),
@@ -209,12 +206,12 @@ TK3_ARTICULATION = EntityArticulationInfoCfg(
 )
 
 
-def get_tk3_robot_cfg() -> EntityCfg:
+def get_tk3_robot_cfg(*, convex_sole: bool = False) -> EntityCfg:
   """Return a fresh TienKung 3 robot configuration."""
   return EntityCfg(
     init_state=HOME_KEYFRAME,
     collisions=(FULL_COLLISION,),
-    spec_fn=get_spec,
+    spec_fn=partial(get_spec, convex_sole=convex_sole),
     articulation=TK3_ARTICULATION,
   )
 
