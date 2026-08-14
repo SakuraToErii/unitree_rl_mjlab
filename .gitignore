@@ -25,3 +25,15 @@ tests/*
 !tests/test_tk3_foot_configuration.py
 !tests/test_tk3_play_config.py
 !tests/test_tracking_onnx_control.py
+
+# Local handoff and research notes.
+doc/MJLAB_1_5_3_HANDOFF.md
+doc/TK3_GHOST_HANDOFF.md
+doc/ghost改进调研.md
+doc/mjcf_handoff.md
+doc/research/_scratch_deploy_xsim_friction.md
+doc/research/_scratch_mjlab_tk3_friction.md
+doc/research/_scratch_real_floor_friction.md
+doc/research/tk3_friction_mjlab_vs_deploy_vs_real.md
+doc/research/training_timesteps_cheat_sheet.md
+doc/research/urdf_effort_vs_mujoco_force_limits.md
