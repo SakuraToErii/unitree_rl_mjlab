@@ -13,7 +13,6 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
 from mjlab.utils.spec_config import CollisionCfg
 
-import src.tasks.tracking.mdp as mdp
 from src.assets.robots import TK3_ACTION_SCALE, get_tk3_robot_cfg
 from src.assets.robots.tiangong3.tk3_constants import (
   FOOT_GEOM_PATTERN,
@@ -21,6 +20,7 @@ from src.assets.robots.tiangong3.tk3_constants import (
   TK3_COMMAND_DELAY_MIN_LAG,
   TK3_NOMINAL_FOOT_GROUND_FRICTION,
 )
+from src.tasks.tracking import mdp
 from src.tasks.tracking.mdp import MotionCommandCfg
 from src.tasks.tracking.tracking_env_cfg import make_tracking_env_cfg
 
@@ -212,9 +212,10 @@ def tk3_flat_tracking_env_cfg(
   if play:
     cfg.episode_length_s = int(1e9)
     cfg.observations["actor"].enable_corruption = False
-    # Evaluate against nominal robot and terrain parameters.
-    # This also leaves actuator delay buffers at their default zero lag.
+    # Playback uses nominal parameters and runs until the caller exits.
+    # Disable randomization events, all terminations, and actuator delay.
     cfg.events.clear()
+    cfg.terminations.clear()
     motion_cmd.actuator_command_lag_range = None
 
     motion_cmd.pose_range = {}

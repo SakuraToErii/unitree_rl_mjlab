@@ -120,8 +120,10 @@ def tk3_flat_tracking_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   if play:
     cfg.episode_length_s = int(1e9)
     cfg.observations["actor"].enable_corruption = False
-    # 评估用名义参数：清空事件、关闭延迟/RSI/指令噪声（含全部 preview）
+    # Playback uses nominal parameters and runs until the caller exits.
+    # Disable randomization events, all terminations, RSI, and command noise.
     cfg.events.clear()
+    cfg.terminations.clear()
     motion_cmd.actuator_command_lag_range = None
 
     motion_cmd.pose_range = {}
