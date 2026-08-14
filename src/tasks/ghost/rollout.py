@@ -15,8 +15,8 @@ from .mdp.actions import JointPositionLimitAction
 from .mdp.commands import MotionCommand
 
 if TYPE_CHECKING:
-  from mjlab.envs import ManagerBasedRlEnv
   from mjlab.entity import Entity
+  from mjlab.envs import ManagerBasedRlEnv
 
 
 _ALLOWED_CONTACT_BODIES = {
@@ -190,6 +190,19 @@ class PhysicsRolloutRecorder:
   def frame_count(self) -> int:
     return len(self._samples.get("reference_index", ()))
 
+  def state_is_finite(self) -> bool:
+    """Check the simulator state explicitly when play has no terminations."""
+    tensors = (
+      self.robot.data.joint_pos,
+      self.robot.data.joint_vel,
+      self.robot.data.body_link_pos_w,
+      self.robot.data.body_link_quat_w,
+      self.robot.data.body_link_lin_vel_w,
+      self.robot.data.body_link_ang_vel_w,
+      self.robot.data.actuator_force,
+    )
+    return all(bool(torch.isfinite(value).all().item()) for value in tensors)
+
   def build_payload(self, provenance: dict[str, str]) -> dict[str, np.ndarray]:
     if self.frame_count == 0:
       raise RuntimeError("No rollout samples were recorded.")
@@ -314,7 +327,12 @@ class PhysicsRolloutRecorder:
       "fk_angular_velocity_error_max_rad_s": max_ang_vel_error,
     }
 
-  def quality_report(self, payload: dict[str, np.ndarray]) -> dict[str, Any]:
+  def quality_report(
+    self,
+    payload: dict[str, np.ndarray],
+    *,
+    expected_frame_count: int | None = None,
+  ) -> dict[str, Any]:
     fps = float(payload["fps"][0])
     reference_index = payload["reference_index"]
     body_pos = payload["body_pos_w"]
@@ -324,15 +342,23 @@ class PhysicsRolloutRecorder:
     contact_mask = payload["contact_mask"]
     contact_dist = payload["contact_dist"]
     actuator_force = payload["actuator_force"]
-    consistency = self._kinematic_consistency(payload)
-
-    quaternion_norm_error = float(
-      np.max(np.abs(np.linalg.norm(payload["body_quat_w"], axis=-1) - 1.0))
-    )
     finite = all(
       np.isfinite(array).all()
       for array in payload.values()
       if np.issubdtype(array.dtype, np.number)
+    )
+    consistency = (
+      self._kinematic_consistency(payload)
+      if finite
+      else {
+        "fk_position_error_max_m": float("inf"),
+        "fk_orientation_dot_error_max": float("inf"),
+        "fk_linear_velocity_error_max_m_s": float("inf"),
+        "fk_angular_velocity_error_max_rad_s": float("inf"),
+      }
+    )
+    quaternion_norm_error = float(
+      np.max(np.abs(np.linalg.norm(payload["body_quat_w"], axis=-1) - 1.0))
     )
     contiguous_reference = bool(
       np.array_equal(
@@ -340,10 +366,15 @@ class PhysicsRolloutRecorder:
         np.arange(reference_index[0], reference_index[0] + len(reference_index)),
       )
     )
+    expected_frames = (
+      int(expected_frame_count)
+      if expected_frame_count is not None
+      else int(self.command.motion.time_step_total)
+    )
     complete_clip = bool(
       reference_index[0] == 0
-      and reference_index[-1] == self.command.motion.time_step_total - 1
-      and len(reference_index) == self.command.motion.time_step_total
+      and reference_index[-1] == expected_frames - 1
+      and len(reference_index) == expected_frames
     )
 
     below = joint_pos < self.joint_limits[None, :, 0] - 1.0e-4
@@ -364,7 +395,11 @@ class PhysicsRolloutRecorder:
 
     root_index = self.body_names.index(self.command.cfg.anchor_body_name)
     root_velocity_z = body_lin_vel[:, root_index, 2]
-    root_acceleration_z = np.gradient(root_velocity_z, 1.0 / fps)
+    root_acceleration_z = (
+      np.gradient(root_velocity_z, 1.0 / fps)
+      if len(root_velocity_z) >= 2
+      else np.zeros_like(root_velocity_z)
+    )
     no_ground_contact = ~np.any(contact_mask, axis=1)
     unsupported_static = (
       no_ground_contact
@@ -391,8 +426,11 @@ class PhysicsRolloutRecorder:
       float(np.mean(foot_slip_samples)) if foot_slip_samples.size else 0.0
     )
 
-    joint_acceleration = np.gradient(joint_vel, 1.0 / fps, axis=0)
-    joint_jerk = np.gradient(joint_acceleration, 1.0 / fps, axis=0)
+    if len(joint_vel) >= 2:
+      joint_acceleration = np.gradient(joint_vel, 1.0 / fps, axis=0)
+      joint_jerk = np.gradient(joint_acceleration, 1.0 / fps, axis=0)
+    else:
+      joint_jerk = np.zeros_like(joint_vel)
     joint_jerk_rms = float(np.sqrt(np.mean(np.square(joint_jerk))))
 
     allowed_indexes = {
@@ -429,8 +467,8 @@ class PhysicsRolloutRecorder:
 
     return {
       "quality_passed": quality_passed,
-      "frame_count": int(len(reference_index)),
-      "expected_frame_count": int(self.command.motion.time_step_total),
+      "frame_count": len(reference_index),
+      "expected_frame_count": expected_frames,
       "finite": bool(finite),
       "quaternion_norm_error_max": quaternion_norm_error,
       **consistency,
@@ -475,3 +513,55 @@ def save_rollout(
     encoding="utf-8",
   )
   return output_path, metrics_path
+
+
+class RolloutQualityError(RuntimeError):
+  """A rejected rollout whose diagnostic artifacts were saved successfully."""
+
+  def __init__(
+    self, npz_path: Path, metrics_path: Path, reason: str
+  ) -> None:
+    self.npz_path = npz_path
+    self.metrics_path = metrics_path
+    self.reason = reason
+    super().__init__(
+      f"{reason}; failed rollout diagnostics were saved to {npz_path} "
+      f"and {metrics_path}."
+    )
+
+
+def _failed_rollout_path(output_file: str | Path) -> Path:
+  output_path = Path(output_file).expanduser().resolve()
+  if output_path.suffix != ".npz":
+    output_path = output_path.with_suffix(".npz")
+  if output_path.stem.endswith(".failed"):
+    return output_path
+  return output_path.with_name(f"{output_path.stem}.failed.npz")
+
+
+def save_rollout_checked(
+  output_file: str | Path,
+  payload: dict[str, np.ndarray],
+  metrics: dict[str, Any],
+  *,
+  failure_reason: str | None = None,
+) -> tuple[Path, Path]:
+  """Save an accepted rollout or raise after saving ``*.failed`` diagnostics.
+
+  The requested output path is reserved for a quality-passing artifact. Any
+  early runtime failure or failed quality gate is written to a sibling
+  ``<stem>.failed.npz`` and ``<stem>.failed.metrics.json`` before raising.
+  """
+  accepted = bool(metrics.get("quality_passed", False)) and failure_reason is None
+  saved_metrics = dict(metrics)
+  saved_metrics["artifact_status"] = "accepted" if accepted else "failed"
+  if not accepted:
+    failure_reason = failure_reason or "quality gates failed"
+    saved_metrics["failure_reason"] = failure_reason
+    output_file = _failed_rollout_path(output_file)
+
+  npz_path, metrics_path = save_rollout(output_file, payload, saved_metrics)
+  if not accepted:
+    assert failure_reason is not None
+    raise RolloutQualityError(npz_path, metrics_path, failure_reason)
+  return npz_path, metrics_path

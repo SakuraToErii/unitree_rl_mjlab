@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import copy
 import math
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import mujoco
 import numpy as np
@@ -21,6 +22,7 @@ from mjlab.utils.lab_api.math import (
 )
 from mjlab.viewer.debug_visualizer import DebugVisualizer
 
+from ..motion_clip import MOTION_ARRAY_KEYS, MotionClip
 from .events import randomize_actuator_command_lag
 
 if TYPE_CHECKING:
@@ -42,112 +44,80 @@ class MotionLoader:
     expected_fps: float | None = None,
   ) -> None:
     with np.load(motion_file, allow_pickle=False) as data:
-      required_keys = {
-        "fps",
-        "joint_pos",
-        "joint_vel",
-        "body_pos_w",
-        "body_quat_w",
-        "body_lin_vel_w",
-        "body_ang_vel_w",
-      }
-      missing_keys = sorted(required_keys.difference(data.files))
-      if missing_keys:
-        raise ValueError(f"Motion is missing required keys: {missing_keys}.")
+      payload = {key: np.asarray(data[key]) for key in data.files}
+    clip = MotionClip.from_mapping(
+      payload, minimum_frames=2, require_fps=True
+    )
+    arrays = clip.to_dict(copy=False)
+    self.fps = float(arrays["fps"].reshape(-1)[0])
+    if expected_fps is not None and not math.isclose(
+      self.fps, expected_fps, rel_tol=1.0e-6, abs_tol=1.0e-6
+    ):
+      raise ValueError(
+        f"Motion fps {self.fps:g} does not match environment frequency "
+        f"{expected_fps:g} Hz."
+      )
 
-      self.fps = float(np.asarray(data["fps"]).reshape(-1)[0])
-      if not math.isfinite(self.fps) or self.fps <= 0.0:
-        raise ValueError(f"Motion fps must be positive and finite, got {self.fps}.")
-      if expected_fps is not None and not math.isclose(
-        self.fps, expected_fps, rel_tol=1.0e-6, abs_tol=1.0e-6
-      ):
+    joint_indexes = self._name_indexes(arrays, "joint_names", joint_names)
+    body_indexes_by_name = self._name_indexes(arrays, "body_names", body_names)
+    if joint_indexes is None and joint_names:
+      if arrays["joint_pos"].shape[1] != len(joint_names):
         raise ValueError(
-          f"Motion fps {self.fps:g} does not match environment frequency "
-          f"{expected_fps:g} Hz."
-        )
-
-      joint_indexes = self._name_indexes(data, "joint_names", joint_names)
-      body_indexes_by_name = self._name_indexes(data, "body_names", body_names)
-
-      joint_pos = np.asarray(data["joint_pos"])
-      joint_vel = np.asarray(data["joint_vel"])
-      body_pos_w = np.asarray(data["body_pos_w"])
-      body_quat_w = np.asarray(data["body_quat_w"])
-      body_lin_vel_w = np.asarray(data["body_lin_vel_w"])
-      body_ang_vel_w = np.asarray(data["body_ang_vel_w"])
-      arrays = {
-        "joint_pos": joint_pos,
-        "joint_vel": joint_vel,
-        "body_pos_w": body_pos_w,
-        "body_quat_w": body_quat_w,
-        "body_lin_vel_w": body_lin_vel_w,
-        "body_ang_vel_w": body_ang_vel_w,
-      }
-      frame_counts = {name: array.shape[0] for name, array in arrays.items()}
-      if len(set(frame_counts.values())) != 1:
-        raise ValueError(f"Motion arrays have inconsistent frame counts: {frame_counts}.")
-      if next(iter(frame_counts.values())) < 2:
-        raise ValueError("Motion must contain at least two frames.")
-      nonfinite = [name for name, array in arrays.items() if not np.isfinite(array).all()]
-      if nonfinite:
-        raise ValueError(f"Motion arrays contain NaN or Inf: {nonfinite}.")
-      if joint_pos.ndim != 2 or joint_vel.shape != joint_pos.shape:
-        raise ValueError(
-          "joint_pos and joint_vel must both have shape [T, num_joints]."
-        )
-      if body_pos_w.ndim != 3 or body_pos_w.shape[-1] != 3:
-        raise ValueError("body_pos_w must have shape [T, num_bodies, 3].")
-      expected_body_vec_shape = body_pos_w.shape
-      if body_lin_vel_w.shape != expected_body_vec_shape:
-        raise ValueError("body_lin_vel_w shape must match body_pos_w.")
-      if body_ang_vel_w.shape != expected_body_vec_shape:
-        raise ValueError("body_ang_vel_w shape must match body_pos_w.")
-      if body_quat_w.shape != (*body_pos_w.shape[:2], 4):
-        raise ValueError("body_quat_w must have shape [T, num_bodies, 4].")
-      quat_norm = np.linalg.norm(body_quat_w, axis=-1)
-      if not np.allclose(quat_norm, 1.0, atol=1.0e-3):
-        max_error = float(np.max(np.abs(quat_norm - 1.0)))
-        raise ValueError(
-          f"body_quat_w contains non-unit quaternions (max norm error {max_error:g})."
-        )
-      if joint_names and joint_pos.shape[1] != (
-        len(data["joint_names"]) if "joint_names" in data.files else len(joint_names)
-      ):
-        raise ValueError("Joint metadata length does not match joint arrays.")
-      if "body_names" in data.files and body_pos_w.shape[1] != len(data["body_names"]):
-        raise ValueError("Body metadata length does not match body arrays.")
-
-      if joint_indexes is not None:
-        joint_pos = joint_pos[:, joint_indexes]
-        joint_vel = joint_vel[:, joint_indexes]
-      elif joint_names and joint_pos.shape[1] != len(joint_names):
-        raise ValueError(
-          f"Motion has {joint_pos.shape[1]} joints but robot has "
+          f"Motion has {arrays['joint_pos'].shape[1]} joints but robot has "
           f"{len(joint_names)}. Add joint_names metadata to the motion file "
           "when their layouts differ."
         )
+      joint_indexes = list(range(len(joint_names)))
+    selected_body_indexes = (
+      body_indexes_by_name
+      if body_indexes_by_name is not None
+      else body_indexes.detach().cpu().tolist()
+    )
+    joint_selection: list[int] | slice = (
+      joint_indexes if joint_indexes is not None else slice(None)
+    )
+    selected = {
+      "joint_pos": arrays["joint_pos"][:, joint_selection],
+      "joint_vel": arrays["joint_vel"][:, joint_selection],
+      "body_pos_w": arrays["body_pos_w"][:, selected_body_indexes],
+      "body_quat_w": arrays["body_quat_w"][:, selected_body_indexes],
+      "body_lin_vel_w": arrays["body_lin_vel_w"][:, selected_body_indexes],
+      "body_ang_vel_w": arrays["body_ang_vel_w"][:, selected_body_indexes],
+    }
+    for key, array in selected.items():
+      setattr(self, key, self._to_tensor(array, device))
+    self.time_step_total = clip.frame_count
 
-      selected_body_indexes = (
-        body_indexes_by_name
-        if body_indexes_by_name is not None
-        else body_indexes.detach().cpu().tolist()
+  def replace_arrays(
+    self, arrays: Mapping[str, np.ndarray], device: str | None = None
+  ) -> None:
+    """Replace the loaded clip in-place. Arrays must already match robot layout."""
+    device = device or str(self.joint_pos.device)
+    clip = MotionClip.from_mapping(arrays, minimum_frames=2)
+    payload = clip.to_dict(copy=False)
+    expected_shapes = {
+      key: tuple(getattr(self, key).shape[1:]) for key in MOTION_ARRAY_KEYS
+    }
+    mismatched = {
+      key: (tuple(payload[key].shape[1:]), expected_shapes[key])
+      for key in MOTION_ARRAY_KEYS
+      if tuple(payload[key].shape[1:]) != expected_shapes[key]
+    }
+    if mismatched:
+      raise ValueError(
+        "Replacement motion does not match the loaded robot layout: "
+        f"{mismatched}."
       )
-      self.joint_pos = self._to_tensor(joint_pos, device)
-      self.joint_vel = self._to_tensor(joint_vel, device)
-      self.body_pos_w = self._to_tensor(
-        body_pos_w[:, selected_body_indexes], device
-      )
-      self.body_quat_w = self._to_tensor(
-        body_quat_w[:, selected_body_indexes], device
-      )
-      self.body_lin_vel_w = self._to_tensor(
-        body_lin_vel_w[:, selected_body_indexes], device
-      )
-      self.body_ang_vel_w = self._to_tensor(
-        body_ang_vel_w[:, selected_body_indexes], device
-      )
-
-    self.time_step_total = self.joint_pos.shape[0]
+    if "fps" in payload:
+      fps = float(payload["fps"].reshape(-1)[0])
+      if not math.isclose(fps, self.fps, rel_tol=1.0e-6, abs_tol=1.0e-6):
+        raise ValueError(
+          f"Replacement motion fps {fps:g} does not match loaded fps "
+          f"{self.fps:g}."
+        )
+    for key in MOTION_ARRAY_KEYS:
+      setattr(self, key, self._to_tensor(payload[key], device))
+    self.time_step_total = clip.frame_count
 
   @staticmethod
   def _to_tensor(array: np.ndarray, device: str) -> torch.Tensor:
@@ -155,12 +125,12 @@ class MotionLoader:
 
   @staticmethod
   def _name_indexes(
-    data: np.lib.npyio.NpzFile,
+    data: Mapping[str, np.ndarray],
     key: str,
     requested_names: tuple[str, ...],
   ) -> list[int] | None:
     """Resolve requested names against optional NPZ layout metadata."""
-    if not requested_names or key not in data.files:
+    if not requested_names or key not in data:
       return None
 
     stored_names = tuple(str(name) for name in data[key].tolist())
@@ -276,13 +246,6 @@ class MotionCommand(CommandTerm):
     self._current_bin_failed = torch.zeros(
       self.bin_count, dtype=torch.float, device=self.device
     )
-    ctrl_ids = self.robot.indexing.ctrl_ids.detach().cpu().numpy()
-    effort_range = self._env.sim.mj_model.actuator_forcerange[ctrl_ids]
-    effort_limits = np.max(np.abs(effort_range), axis=-1)
-    self._actuator_effort_limits = torch.as_tensor(
-      effort_limits, dtype=torch.float32, device=self.device
-    ).clamp_min(1.0e-6)
-
     self.metrics["error_anchor_pos"] = torch.zeros(self.num_envs, device=self.device)
     self.metrics["error_anchor_rot"] = torch.zeros(self.num_envs, device=self.device)
     self.metrics["error_anchor_lin_vel"] = torch.zeros(
@@ -560,8 +523,33 @@ class MotionCommand(CommandTerm):
     return self.robot.data.body_link_ang_vel_w[:, self.robot_anchor_body_index]
 
   @property
+  def actuator_effort_limits(self) -> torch.Tensor:
+    """Read the live per-environment force limits for this robot's controls."""
+    force = self.robot.data.actuator_force
+    force_range = self._env.sim.model.actuator_forcerange
+    if force_range.ndim != 3 or force_range.shape[-1] != 2:
+      raise ValueError(
+        "Simulator actuator_forcerange must have shape [B, num_ctrl, 2], "
+        f"got {tuple(force_range.shape)}."
+      )
+    ctrl_ids = self.robot.indexing.ctrl_ids.to(
+      device=force_range.device, dtype=torch.long
+    )
+    limits = torch.amax(
+      torch.abs(torch.index_select(force_range, 1, ctrl_ids)), dim=-1
+    )
+    if limits.shape[0] == 1 and force.shape[0] != 1:
+      limits = limits.expand(force.shape[0], -1)
+    if limits.shape != force.shape:
+      raise ValueError(
+        "Live actuator force-limit layout does not match robot forces: "
+        f"limits={tuple(limits.shape)}, forces={tuple(force.shape)}."
+      )
+    return limits.to(device=force.device, dtype=force.dtype).clamp_min(1.0e-6)
+
+  @property
   def normalized_actuator_force(self) -> torch.Tensor:
-    return self.robot.data.actuator_force / self._actuator_effort_limits
+    return self.robot.data.actuator_force / self.actuator_effort_limits
 
   @property
   def reference_index(self) -> torch.Tensor:
@@ -570,6 +558,26 @@ class MotionCommand(CommandTerm):
   @property
   def segment_end(self) -> torch.Tensor:
     return self.time_steps >= self.motion.time_step_total - 1
+
+  def replace_motion(
+    self, arrays: Mapping[str, np.ndarray], *, frame: int = 0
+  ) -> None:
+    """Swap the reference clip without resetting the robot.
+
+    Used for ONNX chaining: keep the current simulated pose and point the
+    command at a new (possibly start-overlaid) motion.
+    """
+    self.motion.replace_arrays(arrays, device=self.device)
+    last_index = self.motion.time_step_total - 1
+    if frame < 0 or frame > last_index:
+      raise ValueError(f"Motion frame {frame} is outside [0, {last_index}].")
+    self.time_steps[:] = frame
+    # Next env.step should advance this clip, not hold the handover frame.
+    self._resampled_since_update[:] = False
+    env_ids = torch.arange(self.num_envs, device=self.device)
+    self._set_body_targets(
+      env_ids, self.robot_anchor_pos_w, self.robot_anchor_quat_w
+    )
 
   def _update_metrics(self):
     self.metrics["error_anchor_pos"] = torch.norm(

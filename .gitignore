@@ -21,5 +21,6 @@ datasets
 !.agents/**/*.sh
 tests/*
 !tests/test_mjlab_compat.py
+!tests/test_ghost_chain_motion.py
 !tests/test_tk3_foot_configuration.py
 !tests/test_tk3_play_config.py
