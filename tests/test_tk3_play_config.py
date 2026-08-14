@@ -23,6 +23,14 @@ EnvCfgFactory = Callable[..., ManagerBasedRlEnvCfg]
 class TestTk3PlayConfig(unittest.TestCase):
   """Verify the train/play boundary for production and Ghost TK3 tasks."""
 
+  def test_production_friction_and_contact_capacity_experiment(self) -> None:
+    cfg = tk3_tracking_env_cfg()
+
+    joint_friction = cfg.events["joint_friction"]
+    self.assertEqual(joint_friction.params["ranges"], (0.1, 6))
+    self.assertEqual(joint_friction.params["operation"], "scale")
+    self.assertEqual(cfg.sim.nconmax, 128)
+
   def test_training_preserves_termination_policy(self) -> None:
     """Training variants must retain their intended reset boundaries."""
     cases: tuple[tuple[str, EnvCfgFactory, float, set[str]], ...] = (

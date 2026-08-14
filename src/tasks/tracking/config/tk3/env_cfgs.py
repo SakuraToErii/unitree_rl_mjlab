@@ -166,7 +166,8 @@ def tk3_flat_tracking_env_cfg(
     mode="startup",
     func=dr.joint_friction,
     params={
-      "ranges": (0.3, 3),
+      # Nominal frictionloss is 0.1, giving an effective 0.01-0.6 range.
+      "ranges": (0.1, 6),
       "operation": "scale",
     },
   )
@@ -195,7 +196,8 @@ def tk3_flat_tracking_env_cfg(
   # simulation step, decimation=2 keeps one policy step per motion frame.
   cfg.decimation = 2
   cfg.episode_length_s = 20.0
-  cfg.sim.nconmax = 64
+  # Leave headroom for simultaneous foot, terrain, and self contacts.
+  cfg.sim.nconmax = 128
 
   if not has_state_estimation:
     actor_terms = {
