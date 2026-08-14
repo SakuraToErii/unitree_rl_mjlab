@@ -40,7 +40,11 @@ from src.tasks.tracking.mdp.metrics import (
   compute_mpkpe,
   compute_root_relative_mpkpe,
 )
-from src.tasks.tracking.mdp.rewards import raw_action_torque_limit_penalty
+from src.tasks.tracking.mdp.rewards import (
+  motion_global_body_angular_velocity_error_exp,
+  motion_global_body_linear_velocity_error_exp,
+  raw_action_torque_limit_penalty,
+)
 from src.tasks.velocity.mdp.curriculums import terrain_levels_vel
 
 LOCAL_TASKS = {
@@ -227,8 +231,10 @@ class Mjlab153CompatibilityTest(unittest.TestCase):
     gainprm = torch.zeros((3, 2, 10))
     gainprm[..., 0] = 10.0
     biasprm = torch.zeros((3, 2, 10))
-    biasprm[..., 1] = -10.0
+    biasprm[..., 2] = -2.0
     force_range = torch.tensor(((-5.0, 5.0), (-5.0, 5.0))).repeat(3, 1, 1)
+    joint_vel = torch.zeros((3, 2))
+    joint_vel[1, 0] = 3.0
     asset = SimpleNamespace(
       num_joints=2,
       joint_names=("joint_0", "joint_1"),
@@ -236,7 +242,7 @@ class Mjlab153CompatibilityTest(unittest.TestCase):
       data=SimpleNamespace(
         encoder_bias=torch.zeros((3, 2)),
         joint_pos=torch.zeros((3, 2)),
-        joint_vel=torch.zeros((3, 2)),
+        joint_vel=joint_vel,
       ),
     )
     env = SimpleNamespace(
@@ -271,13 +277,75 @@ class Mjlab153CompatibilityTest(unittest.TestCase):
       asset_cfg=asset_cfg,
       soft_ratio=0.8,
     )
-    torch.testing.assert_close(value, torch.tensor((2.3125, 0.0, 0.0)))
+    torch.testing.assert_close(value, torch.tensor((2.25, 0.25, 0.0)))
+
+    # 奖励必须读取实时力矩上限，不能缓存启动时的初始值。
+    force_range[..., 0] = -10.0
+    force_range[..., 1] = 10.0
+    value = penalty(
+      env,
+      action_name="joint_pos",
+      asset_cfg=asset_cfg,
+      soft_ratio=0.8,
+    )
+    torch.testing.assert_close(value, torch.tensor((0.0625, 0.0, 0.0)))
+    with self.assertRaises(ValueError):
+      penalty(
+        env,
+        action_name="joint_pos",
+        asset_cfg=asset_cfg,
+        soft_ratio=1.1,
+      )
 
     tk3_cfg = load_env_cfg("TK3-Tracking")
     self.assertEqual(
       tk3_cfg.rewards["raw_action_torque_limit"].params["soft_ratio"],
-      0.85,
+      0.95,
     )
+
+  def test_tk3_tracking_reward_overrides(self) -> None:
+    cfg = load_env_cfg("TK3-Tracking")
+
+    root_pos = cfg.rewards["motion_global_root_pos"]
+    self.assertEqual(root_pos.weight, 1.0)
+    self.assertEqual(root_pos.params["std"], 0.2)
+
+    root_ori = cfg.rewards["motion_global_root_ori"]
+    self.assertEqual(root_ori.weight, 1.0)
+    self.assertEqual(root_ori.params["std"], 0.4)
+
+    body_pos = cfg.rewards["motion_body_pos"]
+    self.assertEqual(body_pos.weight, 1.0)
+    self.assertEqual(body_pos.params["std"], 0.2)
+
+    body_lin_vel = cfg.rewards["motion_body_lin_vel"]
+    self.assertEqual(body_lin_vel.weight, 0.5)
+    self.assertEqual(body_lin_vel.params["std"], 0.5)
+
+    body_ang_vel = cfg.rewards["motion_body_ang_vel"]
+    self.assertEqual(body_ang_vel.weight, 0.5)
+    self.assertEqual(body_ang_vel.params["std"], 3.14)
+
+    root_lin_vel = cfg.rewards["motion_root_lin_vel"]
+    self.assertIs(
+      root_lin_vel.func,
+      motion_global_body_linear_velocity_error_exp,
+    )
+    self.assertEqual(root_lin_vel.weight, 0.5)
+    self.assertEqual(root_lin_vel.params["body_names"], ("pelvis",))
+    self.assertAlmostEqual(root_lin_vel.params["std"], 0.5**0.5)
+
+    root_ang_vel = cfg.rewards["motion_root_ang_vel"]
+    self.assertIs(
+      root_ang_vel.func,
+      motion_global_body_angular_velocity_error_exp,
+    )
+    self.assertEqual(root_ang_vel.weight, 0.5)
+    self.assertEqual(root_ang_vel.params["body_names"], ("pelvis",))
+    self.assertEqual(root_ang_vel.params["std"], 3.14)
+
+    self.assertEqual(cfg.rewards["joint_acc_l2"].weight, -2.5e-7)
+    self.assertEqual(cfg.rewards["raw_action_torque_limit"].weight, -1.0)
 
   def test_tk3_actuator_command_lag_is_sampled_after_motion_resample(self) -> None:
     for actuator in TK3_ARTICULATION.actuators:

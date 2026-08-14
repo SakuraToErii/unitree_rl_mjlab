@@ -83,70 +83,70 @@ ARMATURE_WRIST = 0.0236
 TK3_ACTUATOR_HIP_PITCH_ROLL = _position_actuator(
   (r"hip_(pitch|roll)_[lr]_joint",),
   armature=ARMATURE_HIP_PITCH_ROLL,
-  effort_limit=223.0,
+  effort_limit=235.0,
   stiffness_override=900.0,
   damping_override=57.0,
 )
 TK3_ACTUATOR_HIP_YAW = _position_actuator(
   (r"hip_yaw_[lr]_joint",),
   armature=ARMATURE_HIP_YAW,
-  effort_limit=142.0,
+  effort_limit=150.0,
   stiffness_override=660.0,
   damping_override=42.0,
 )
 TK3_ACTUATOR_KNEE = _position_actuator(
   (r"knee_pitch_[lr]_joint",),
   armature=ARMATURE_KNEE,
-  effort_limit=380.0,
+  effort_limit=400.0,
   stiffness_override=1260.0,
   damping_override=80.0,
 )
 TK3_ACTUATOR_ANKLE = _position_actuator(
   (r"ankle_(pitch|roll)_[lr]_joint",),
   armature=ARMATURE_ANKLE,
-  effort_limit=52.0,
+  effort_limit=55.0,
   stiffness_override=55.0,
   damping_override=3.4,
 )
 TK3_ACTUATOR_WAIST_PITCH_ROLL = _position_actuator(
   (r"waist_(roll|pitch)_joint",),
   armature=ARMATURE_WAIST,
-  effort_limit=142.0,
+  effort_limit=150.0,
   stiffness_override=670.0,
   damping_override=41.0,
 )
 TK3_ACTUATOR_WAIST_YAW = _position_actuator(
   (r"waist_yaw_joint",),
   armature=ARMATURE_WAIST,
-  effort_limit=86.0,
+  effort_limit=91.0,
   stiffness_override=670.0,
   damping_override=41.0,
 )
 TK3_ACTUATOR_SHOULDER_PITCH_ROLL = _position_actuator(
   (r"shoulder_(pitch|roll)_[lr]_joint",),
   armature=ARMATURE_ARM,
-  effort_limit=85.0,
+  effort_limit=90.0,
   stiffness_override=100.0,
   damping_override=7.4,
 )
 TK3_ACTUATOR_SHOULDER_YAW_ELBOW_PITCH = _position_actuator(
   (r"(shoulder_yaw|elbow_pitch)_[lr]_joint",),
   armature=ARMATURE_ARM,
-  effort_limit=47.0,
+  effort_limit=50.0,
   stiffness_override=90.0,
   damping_override=5.9,
 )
 TK3_ACTUATOR_ELBOW_YAW = _position_actuator(
   (r"elbow_yaw_[lr]_joint",),
   armature=ARMATURE_ARM,
-  effort_limit=24.0,
+  effort_limit=25.0,
   stiffness_override=35.0,
   damping_override=2.4,
 )
 TK3_ACTUATOR_WRIST = _position_actuator(
   (r"wrist_(pitch|roll)_[lr]_joint",),
   armature=ARMATURE_WRIST,
-  effort_limit=38.0,
+  effort_limit=40.0,
   stiffness_override=35.0,
   damping_override=2.4,
 )
@@ -225,6 +225,9 @@ for actuator in TK3_ACTUATORS:
   for name_expr in actuator.target_names_expr:
     TK3_ACTION_SCALE[name_expr] = 0.25 #* effort / actuator.stiffness
 
+# 训练力矩限幅，防止TN曲线太陡
+for a in TK3_ACTUATORS:
+  a.effort_limit = a.effort_limit * 0.85
 
 if __name__ == "__main__":
   import mujoco.viewer as viewer

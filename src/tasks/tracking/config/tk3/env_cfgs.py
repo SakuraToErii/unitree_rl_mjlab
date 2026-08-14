@@ -178,6 +178,34 @@ def tk3_flat_tracking_env_cfg(
     "wrist_roll_r_link",
   )
 
+  # TK3 使用比通用 tracking 任务更严格的全身跟踪核。
+  cfg.rewards["motion_global_root_pos"].weight = 1.0
+  cfg.rewards["motion_global_root_pos"].params["std"] = 0.2
+  cfg.rewards["motion_global_root_ori"].weight = 1.0
+  cfg.rewards["motion_global_root_ori"].params["std"] = 0.4
+  cfg.rewards["motion_body_pos"].params["std"] = 0.2
+  cfg.rewards["motion_body_lin_vel"].weight = 0.5
+  cfg.rewards["motion_body_lin_vel"].params["std"] = 0.5
+  cfg.rewards["motion_body_ang_vel"].weight = 0.5
+  cfg.rewards["motion_body_ang_vel"].params["std"] = 3.14
+  cfg.rewards["motion_root_lin_vel"] = RewardTermCfg(
+    func=mdp.motion_global_body_linear_velocity_error_exp,
+    weight=0.5,
+    params={
+      "command_name": "motion",
+      "body_names": ("pelvis",),
+      "std": math.sqrt(0.5),
+    },
+  )
+  cfg.rewards["motion_root_ang_vel"] = RewardTermCfg(
+    func=mdp.motion_global_body_angular_velocity_error_exp,
+    weight=0.5,
+    params={
+      "command_name": "motion",
+      "body_names": ("pelvis",),
+      "std": 3.14,
+    },
+  )
   cfg.rewards["motion_joint_pos"] = RewardTermCfg(
     func=mdp.motion_joint_position_error_exp,
     weight=1.0,
@@ -187,6 +215,21 @@ def tk3_flat_tracking_env_cfg(
     func=mdp.motion_joint_velocity_error_exp,
     weight=0.5,
     params={"command_name": "motion", "std": math.sqrt(5.0)},
+  )
+  cfg.rewards["raw_action_torque_limit"] = RewardTermCfg(
+    func=mdp.raw_action_torque_limit_penalty,
+    weight=-1.0,
+    params={
+      "action_name": "joint_pos",
+      "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
+      # soft_ratio 始终作用于运行时 actuator_forcerange。当前训练资产先将
+      # effort_limit 乘以 0.85，因此训练中的触发点为缩放前上限的 80.75%。
+      "soft_ratio": 0.95,
+    },
+  )
+  cfg.rewards["joint_acc_l2"] = RewardTermCfg(
+    func=mdp.joint_acc_l2,
+    weight=-2.5e-7,
   )
 
   cfg.viewer.body_name = "pelvis"
@@ -198,6 +241,8 @@ def tk3_flat_tracking_env_cfg(
   cfg.episode_length_s = 20.0
   # Leave headroom for simultaneous foot, terrain, and self contacts.
   cfg.sim.nconmax = 128
+  # MujocoCfg default is 50; match Tiangong3-mjlab for denser CCD.
+  cfg.sim.mujoco.ccd_iterations = 100
 
   if not has_state_estimation:
     actor_terms = {
