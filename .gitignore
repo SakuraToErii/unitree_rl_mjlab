@@ -24,3 +24,4 @@ tests/*
 !tests/test_ghost_chain_motion.py
 !tests/test_tk3_foot_configuration.py
 !tests/test_tk3_play_config.py
+!tests/test_tracking_onnx_control.py

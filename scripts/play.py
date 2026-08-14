@@ -20,11 +20,11 @@ from src.assets.robots.tiangong3.tk3_selection import (
   FootCollision,
   select_tk3_robot_cfg,
 )
-from src.tasks.ghost.mdp import MotionCommand as GhostMotionCommand
 from src.tasks.ghost.mdp import MotionCommandCfg as GhostMotionCommandCfg
 from src.tasks.ghost.onnx_policy import OnnxGhostPolicy
 from src.tasks.ghost.rl import MotionTrackingOnPolicyRunner as GhostTrackingRunner
 from src.tasks.tracking.mdp import MotionCommandCfg as TrackingMotionCommandCfg
+from src.tasks.tracking.onnx_control import OnnxControlOverlay
 from src.tasks.tracking.rl import (
   MotionTrackingOnPolicyRunner as TrackingMotionTrackingRunner,
 )
@@ -59,6 +59,11 @@ class PlayConfig:
 
   ``None`` preserves the task's registered robot configuration; ``sole`` uses
   the convex rubber mesh and ``xml`` uses the original MJCF cylinder rails.
+  """
+  onnx_params: bool = True
+  """When playing an ``.onnx``, overlay its Kp/Kd, action_scale, default pose,
+  and effort limits. ``.pt`` play always uses the current task constants.
+  Pass ``--onnx-params False`` to keep the task robot cfg for ONNX play too.
   """
   log_root: str = "logs/rsl_rl"
   """Root directory under which experiment logs are written."""
@@ -138,12 +143,10 @@ def run_play(task_id: str, cfg: PlayConfig):
     log_dir = resume_path.parent
 
   if use_onnx:
-    if not is_tracking_task or not isinstance(
-      env_cfg.commands.get("motion"), GhostMotionCommandCfg
-    ):
-      raise ValueError("ONNX play is currently supported only for Ghost tracking tasks.")
+    if not is_tracking_task:
+      raise ValueError("ONNX play is currently supported only for tracking tasks.")
     if cfg.num_envs not in (None, 1):
-      raise ValueError("ONNX Ghost play requires --num-envs 1.")
+      raise ValueError("ONNX play requires --num-envs 1.")
     env_cfg.scene.num_envs = 1
   elif cfg.num_envs is not None:
     env_cfg.scene.num_envs = cfg.num_envs
@@ -152,95 +155,117 @@ def run_play(task_id: str, cfg: PlayConfig):
   if cfg.video_width is not None:
     env_cfg.viewer.width = cfg.video_width
 
+  onnx_control: OnnxControlOverlay | None = None
+  onnx_applied: tuple[str, ...] = ()
+  if use_onnx and cfg.onnx_params:
+    assert resume_path is not None
+    onnx_control = OnnxControlOverlay.from_onnx(resume_path)
+    onnx_applied = onnx_control.apply_action_cfg(env_cfg.actions["joint_pos"])
+    print(f"[INFO]: Overlaying control params from {resume_path.name}")
+
   render_mode = "rgb_array" if (TRAINED_MODE and cfg.video) else None
   if cfg.video and DUMMY_MODE:
     print(
       "[WARN] Video recording with dummy agents is disabled (no checkpoint/log_dir)."
     )
   env = ManagerBasedRlEnv(cfg=env_cfg, device=device, render_mode=render_mode)
-
-  if TRAINED_MODE and cfg.video:
-    print("[INFO] Recording videos during play")
-    assert log_dir is not None  # log_dir is set in TRAINED_MODE block
-    env = VideoRecorder(
-      env,
-      video_folder=log_dir / "videos" / "play",
-      step_trigger=lambda step: step == 0,
-      video_length=cfg.video_length,
-      disable_logger=True,
-    )
-
-  env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
-  if DUMMY_MODE:
-    action_shape: tuple[int, ...] = env.unwrapped.action_space.shape
-    if cfg.agent == "zero":
-
-      class PolicyZero:
-        def __call__(self, obs) -> torch.Tensor:
-          del obs
-          return torch.zeros(action_shape, device=env.unwrapped.device)
-
-      policy = PolicyZero()
-    else:
-
-      class PolicyRandom:
-        def __call__(self, obs) -> torch.Tensor:
-          del obs
-          return 2 * torch.rand(action_shape, device=env.unwrapped.device) - 1
-
-      policy = PolicyRandom()
-  elif use_onnx:
-    assert resume_path is not None
-    command = env.unwrapped.command_manager.get_term("motion")
-    if not isinstance(command, GhostMotionCommand):
-      raise TypeError("ONNX play requires a Ghost MotionCommand instance.")
-    policy = OnnxGhostPolicy(resume_path, command, device=device)
-    print(f"[INFO]: Using ONNX Ghost policy: {resume_path}")
-  else:
-    runner_cls = load_runner_cls(task_id) or MjlabOnPolicyRunner
-    runner = runner_cls(env, asdict(agent_cfg), device=device)
-    runner.load(
-      str(resume_path), load_cfg={"actor": True}, strict=True, map_location=device
-    )
-    policy = runner.get_inference_policy(device=device)
-    if is_tracking_task:
-      if not isinstance(runner, _MOTION_TRACKING_RUNNER_TYPES):
-        raise TypeError(
-          "Tracking play requires MotionTrackingOnPolicyRunner for ONNX export"
+  try:
+    if onnx_control is not None:
+      applied = onnx_applied + onnx_control.apply_runtime(env)
+      if applied:
+        print(
+          f"[INFO]: Applied ONNX {', '.join(applied)} "
+          f"({len(onnx_control.joint_names)} joints)."
         )
-      assert resume_path is not None
-      export_dir = resume_path.parent / "exported"
-      onnx_path = runner.export_motion_policy_bundle(
-        str(export_dir),
-        "policy.onnx",
-        run_name=resume_path.parent.name,
+      else:
+        print("[WARN]: ONNX has no supported control-parameter metadata.")
+
+    if TRAINED_MODE and cfg.video:
+      print("[INFO] Recording videos during play")
+      assert log_dir is not None  # log_dir is set in TRAINED_MODE block
+      env = VideoRecorder(
+        env,
+        video_folder=log_dir / "videos" / "play",
+        step_trigger=lambda step: step == 0,
+        video_length=cfg.video_length,
+        disable_logger=True,
       )
-      print(f"[INFO] Exported motion policy: {onnx_path}")
-      if task_id == "TK3-Tracking":
-        config_path = runner.export_beyond_mimic_config(
-          export_dir / "BeyondMimic_dance.yaml",
-          onnx_filename=onnx_path.name,
-          physical_dt=0.01,
-          decimation=1,
+
+    env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
+    if DUMMY_MODE:
+      action_shape: tuple[int, ...] = env.unwrapped.action_space.shape
+      if cfg.agent == "zero":
+
+        class PolicyZero:
+          def __call__(self, obs) -> torch.Tensor:
+            del obs
+            return torch.zeros(action_shape, device=env.unwrapped.device)
+
+        policy = PolicyZero()
+      else:
+
+        class PolicyRandom:
+          def __call__(self, obs) -> torch.Tensor:
+            del obs
+            return 2 * torch.rand(action_shape, device=env.unwrapped.device) - 1
+
+        policy = PolicyRandom()
+    elif use_onnx:
+      assert resume_path is not None
+      policy_env = env.unwrapped
+      command = policy_env.command_manager.get_term("motion")
+      policy = OnnxGhostPolicy(
+        resume_path,
+        command,
+        device=device,
+        env=policy_env,
+      )
+      print(f"[INFO]: Using ONNX policy: {resume_path}")
+    else:
+      runner_cls = load_runner_cls(task_id) or MjlabOnPolicyRunner
+      runner = runner_cls(env, asdict(agent_cfg), device=device)
+      runner.load(
+        str(resume_path), load_cfg={"actor": True}, strict=True, map_location=device
+      )
+      policy = runner.get_inference_policy(device=device)
+      if is_tracking_task:
+        if not isinstance(runner, _MOTION_TRACKING_RUNNER_TYPES):
+          raise TypeError(
+            "Tracking play requires MotionTrackingOnPolicyRunner for ONNX export"
+          )
+        assert resume_path is not None
+        export_dir = resume_path.parent / "exported"
+        onnx_path = runner.export_motion_policy_bundle(
+          str(export_dir),
+          "policy.onnx",
+          run_name=resume_path.parent.name,
         )
-        print(f"[INFO] Exported BeyondMimic config: {config_path}")
+        print(f"[INFO] Exported motion policy: {onnx_path}")
+        if task_id == "TK3-Tracking":
+          config_path = runner.export_beyond_mimic_config(
+            export_dir / "BeyondMimic_dance.yaml",
+            onnx_filename=onnx_path.name,
+            physical_dt=0.01,
+            decimation=1,
+          )
+          print(f"[INFO] Exported BeyondMimic config: {config_path}")
 
-  # Handle "auto" viewer selection.
-  if cfg.viewer == "auto":
-    has_display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
-    resolved_viewer = "native" if has_display else "viser"
-    del has_display
-  else:
-    resolved_viewer = cfg.viewer
+    # Handle "auto" viewer selection.
+    if cfg.viewer == "auto":
+      has_display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+      resolved_viewer = "native" if has_display else "viser"
+      del has_display
+    else:
+      resolved_viewer = cfg.viewer
 
-  if resolved_viewer == "native":
-    NativeMujocoViewer(env, policy).run()
-  elif resolved_viewer == "viser":
-    ViserPlayViewer(env, policy).run()
-  else:
-    raise RuntimeError(f"Unsupported viewer backend: {resolved_viewer}")
-
-  env.close()
+    if resolved_viewer == "native":
+      NativeMujocoViewer(env, policy).run()
+    elif resolved_viewer == "viser":
+      ViserPlayViewer(env, policy).run()
+    else:
+      raise RuntimeError(f"Unsupported viewer backend: {resolved_viewer}")
+  finally:
+    env.close()
 
 
 def main():
