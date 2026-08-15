@@ -34,16 +34,18 @@ def tk3_tracking_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
       num_mini_batches=4,
       learning_rate=1.0e-3,
       schedule="adaptive",
-      gamma=0.99,
-      lam=0.95,
+      # 100 Hz policy: match ~50 Hz physical discount / GAE horizons.
+      gamma=0.995,
+      lam=0.975,
       desired_kl=0.01,
       max_grad_norm=1.0,
     ),
     experiment_name="tk3_ghost",
     save_interval=100,
-    num_steps_per_env=24,
-    # 50k * 24 = 1.2M common control steps; command noise fades over
-    # steps 960k..1.2M in the environment configuration.
+    # 48 * 0.01 s ≈ 0.48 s, same physical rollout as 24 steps at 50 Hz.
+    num_steps_per_env=48,
+    # 50k * 48 = 2.4M common control steps; command noise fades to zero
+    # by step 1.2M in the environment configuration.
     max_iterations=50_000,
     logger="tensorboard",
     clip_actions=100.0,

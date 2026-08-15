@@ -30,6 +30,20 @@ if TYPE_CHECKING:
   from mjlab.envs import ManagerBasedRlEnv
 
 _DESIRED_FRAME_COLORS = ((1.0, 0.5, 0.5), (0.5, 1.0, 0.5), (0.5, 0.5, 1.0))
+SPAWN_JOINT_LIMIT_FACTOR = 0.98
+
+
+def clip_joint_pos_to_scaled_limits(
+  joint_pos: torch.Tensor,
+  joint_pos_limits: torch.Tensor,
+  factor: float = SPAWN_JOINT_LIMIT_FACTOR,
+) -> torch.Tensor:
+  """Clip joints to ``factor`` of each hard-limit interval about its midpoint."""
+  lower = joint_pos_limits[..., 0]
+  upper = joint_pos_limits[..., 1]
+  mid = 0.5 * (lower + upper)
+  half = 0.5 * (upper - lower) * factor
+  return torch.clip(joint_pos, mid - half, mid + half)
 
 
 class MotionLoader:
@@ -713,9 +727,8 @@ class MotionCommand(CommandTerm):
       size=joint_pos.shape,
       device=joint_pos.device,  # type: ignore
     )
-    soft_joint_pos_limits = self.robot.data.soft_joint_pos_limits[env_ids]
-    joint_pos[env_ids] = torch.clip(
-      joint_pos[env_ids], soft_joint_pos_limits[:, :, 0], soft_joint_pos_limits[:, :, 1]
+    joint_pos[env_ids] = clip_joint_pos_to_scaled_limits(
+      joint_pos[env_ids], self.robot.data.joint_pos_limits[env_ids]
     )
     self.robot.write_joint_state_to_sim(
       joint_pos[env_ids], joint_vel[env_ids], env_ids=env_ids
@@ -909,14 +922,11 @@ class MotionCommand(CommandTerm):
       self.motion.time_step_total - 1,
     )
     self.time_steps[env_ids] = frame
-    joint_pos = self.joint_pos[env_ids].clone()
-    joint_vel = self.joint_vel[env_ids].clone()
-    limits = self.robot.data.soft_joint_pos_limits[env_ids]
-    joint_pos = torch.clamp(
-      joint_pos,
-      min=limits[:, :, 0],
-      max=limits[:, :, 1],
+    joint_pos = clip_joint_pos_to_scaled_limits(
+      self.joint_pos[env_ids].clone(),
+      self.robot.data.joint_pos_limits[env_ids],
     )
+    joint_vel = self.joint_vel[env_ids].clone()
     root_state = torch.cat(
       [
         self.body_pos_w[env_ids, 0],
@@ -1097,8 +1107,8 @@ class MotionCommandCfg(CommandTermCfg):
   command_noise_enabled: bool = True
   # Each environment holds one sample for this duration; a reset starts a new timer.
   command_noise_resample_time_s: float = 1.0
-  # 50k iterations * 24 steps: linearly fade noise over the final 20%.
-  command_noise_anneal_start_step: int = 960_000
+  # 50k iterations * 48 steps: linearly fade noise to zero by 50%.
+  command_noise_anneal_start_step: int = 0
   command_noise_anneal_end_step: int = 1_200_000
   command_joint_pos_noise_range: tuple[float, float] = (-0.01, 0.01)
   command_joint_vel_noise_range: tuple[float, float] = (-0.5, 0.5)

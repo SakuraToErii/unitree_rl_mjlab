@@ -86,10 +86,20 @@ def tk3_flat_tracking_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     "wrist_roll_r_link",
   )
   # Per-environment command perturbations are held for one second. For the
-  # default 50k * 24-step run, fade them to zero over the final 20%.
+  # default 50k * 48-step run, fade them to zero by the halfway point.
   motion_cmd.command_noise_resample_time_s = 1.0
-  motion_cmd.command_noise_anneal_start_step = 960_000
+  motion_cmd.command_noise_anneal_start_step = 0
   motion_cmd.command_noise_anneal_end_step = 1_200_000
+  # Small RSI on the birth root pose. Joints stay at the motion frame and
+  # are clipped to 98% of hard limits in MotionCommand.
+  motion_cmd.pose_range = {
+    "x": (-0.03, 0.03),
+    "y": (-0.03, 0.03),
+    "z": (-0.01, 0.01),
+    "roll": (-0.1, 0.1),
+    "pitch": (-0.1, 0.1),
+    "yaw": (-0.2, 0.2),
+  }
 
   cfg.scene.terrain.collisions = (
     CollisionCfg(

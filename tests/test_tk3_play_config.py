@@ -13,6 +13,7 @@ from src.tasks.ghost.config.tk3.env_cfgs import (
 from src.tasks.ghost.config.tk3.env_cfgs import (
   tk3_flat_tracking_env_cfg as tk3_ghost_tracking_env_cfg,
 )
+from src.tasks.ghost.mdp.commands import MotionCommandCfg
 from src.tasks.tracking.config.tk3.env_cfgs import (
   tk3_flat_tracking_env_cfg as tk3_tracking_env_cfg,
 )
@@ -79,6 +80,28 @@ class TestTk3PlayConfig(unittest.TestCase):
         self.assertEqual(cfg.episode_length_s, episode_length_s)
         self.assertSetEqual(set(cfg.terminations), termination_names)
 
+  def test_ghost_training_anneals_command_noise_by_halfway(self) -> None:
+    motion_cfg = tk3_ghost_tracking_env_cfg().commands["motion"]
+    self.assertIsInstance(motion_cfg, MotionCommandCfg)
+    self.assertEqual(motion_cfg.command_noise_anneal_start_step, 0)
+    self.assertEqual(motion_cfg.command_noise_anneal_end_step, 1_200_000)
+
+  def test_ghost_training_applies_small_spawn_pose_rsi(self) -> None:
+    motion_cfg = tk3_ghost_tracking_env_cfg().commands["motion"]
+    self.assertIsInstance(motion_cfg, MotionCommandCfg)
+    self.assertEqual(
+      motion_cfg.pose_range,
+      {
+        "x": (-0.03, 0.03),
+        "y": (-0.03, 0.03),
+        "z": (-0.01, 0.01),
+        "roll": (-0.1, 0.1),
+        "pitch": (-0.1, 0.1),
+        "yaw": (-0.2, 0.2),
+      },
+    )
+    self.assertEqual(motion_cfg.joint_position_range, (0.0, 0.0))
+
   def test_play_runs_without_terminations(self) -> None:
     """Playback must not reset before the caller finishes its rollout."""
     cases: tuple[tuple[str, EnvCfgFactory], ...] = (
@@ -93,6 +116,11 @@ class TestTk3PlayConfig(unittest.TestCase):
 
         self.assertEqual(cfg.episode_length_s, 1_000_000_000)
         self.assertEqual(cfg.terminations, {})
+        if name.startswith("ghost"):
+          motion_cfg = cfg.commands["motion"]
+          self.assertIsInstance(motion_cfg, MotionCommandCfg)
+          self.assertEqual(motion_cfg.pose_range, {})
+          self.assertEqual(motion_cfg.joint_position_range, (0.0, 0.0))
 
 
 if __name__ == "__main__":
