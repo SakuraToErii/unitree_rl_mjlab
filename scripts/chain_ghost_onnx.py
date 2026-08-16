@@ -13,7 +13,7 @@
 
 Example::
 
-  python scripts/chain_ghost_onnx.py TK3-Ghost-Tracking \\
+  python scripts/chain_ghost_onnx.py TK3-Ghost-Tracking-QRef-Prototype \\
     --output-file datasets/chained.npz \\
     --motion-file datasets/1-1_paddingv2_tcp8mm.npz \\
     --default-onnx resume.onnx \\

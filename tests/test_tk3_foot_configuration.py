@@ -259,10 +259,14 @@ class Tk3FootConfigurationTest(unittest.TestCase):
 
   def test_task_selector_preserves_variant_and_non_tk3_default(self) -> None:
     production = select_tk3_robot_cfg("TK3-Tracking", foot="sole")
-    ghost = select_tk3_robot_cfg("TK3-Ghost-Tracking", foot="xml")
+    ghost = select_tk3_robot_cfg(
+      "TK3-Ghost-Tracking-QRef-Prototype", foot="xml"
+    )
 
     self.assertIsNone(select_tk3_robot_cfg("TK3-Tracking", foot=None))
-    self.assertIsNone(select_tk3_robot_cfg("TK3-Ghost-Tracking", foot=None))
+    self.assertIsNone(
+      select_tk3_robot_cfg("TK3-Ghost-Tracking-QRef-Prototype", foot=None)
+    )
     self.assertIsNone(select_tk3_robot_cfg("Unitree-G1-Flat", foot=None))
     self.assertIsNotNone(production)
     assert production is not None

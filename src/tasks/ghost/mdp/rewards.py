@@ -86,6 +86,7 @@ def motion_relative_body_position_error_exp(
   command_name: str,
   std: float,
   body_names: tuple[str, ...] | None = None,
+  vertical_relaxed_body_names: tuple[str, ...] = (),
 ) -> torch.Tensor:
   """根位置/heading 对齐后的身体形状奖励，不重复计算全局根平移。"""
   command = cast(MotionCommand, env.command_manager.get_term(command_name))
@@ -106,8 +107,18 @@ def motion_relative_body_position_error_exp(
     command.robot_body_pos_w[:, body_indexes]
     - command.robot_anchor_pos_w[:, None, :],
   )
+  position_error = reference_pos_h - robot_pos_h
+  if vertical_relaxed_body_names:
+    relaxed_names = set(vertical_relaxed_body_names)
+    relaxed_indexes = [
+      local_index
+      for local_index, body_index in enumerate(body_indexes)
+      if command.cfg.body_names[body_index] in relaxed_names
+    ]
+    position_error = position_error.clone()
+    position_error[:, relaxed_indexes, 2] = 0.0
   error = torch.sum(
-    torch.square(reference_pos_h - robot_pos_h),
+    torch.square(position_error),
     dim=-1,
   )
   return torch.exp(-error.mean(-1) / std**2)
@@ -288,3 +299,30 @@ def undesired_ground_contact_cost(
     return torch.zeros(env.num_envs, device=env.device)
   force = sensor.data.force[:, undesired_indexes]
   return (torch.norm(force, dim=-1) > force_threshold).sum(dim=-1).float()
+
+
+def deep_ground_penetration_cost(
+  env: ManagerBasedRlEnv,
+  sensor_name: str,
+  tolerance: float = 0.002,
+  scale: float = 0.005,
+) -> torch.Tensor:
+  """惩罚超过正常接触容差的最深穿地。
+
+  归一化二次代价会显著放大厘米级穿地，同时基本放过毫米级软接触。
+  """
+  if tolerance < 0.0:
+    raise ValueError("tolerance must be non-negative.")
+  if scale <= 0.0:
+    raise ValueError("scale must be positive.")
+
+  sensor = env.scene[sensor_name]
+  assert isinstance(sensor, ContactSensor)
+  assert sensor.data.found is not None
+  assert sensor.data.dist is not None
+  penetration = torch.where(
+    sensor.data.found > 0,
+    torch.clamp(-sensor.data.dist - tolerance, min=0.0),
+    0.0,
+  )
+  return torch.amax(torch.square(penetration / scale), dim=1)

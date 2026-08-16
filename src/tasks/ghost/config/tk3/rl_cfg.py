@@ -7,8 +7,8 @@ from mjlab.rl import (
 )
 
 
-def tk3_tracking_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
-  """Create the PPO runner configuration for TienKung 3 tracking."""
+def _tk3_base_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
+  """创建天工三号 Ghost 任务共用的 PPO 配置。"""
   return RslRlOnPolicyRunnerCfg(
     actor=RslRlModelCfg(
       hidden_dims=(512, 256, 128),
@@ -50,3 +50,12 @@ def tk3_tracking_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     logger="tensorboard",
     clip_actions=100.0,
   )
+
+
+def tk3_qref_residual_prototype_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
+  """创建独立的 q_ref 残差策略训练配置。"""
+  cfg = _tk3_base_ppo_runner_cfg()
+  cfg.experiment_name = "tk3_ghost_qref_residual_prototype"
+  # 训练、导出策略和动作项统一使用同一套残差限幅语义。
+  cfg.clip_actions = 1.0
+  return cfg

@@ -30,12 +30,13 @@ def get_spec(*, convex_sole: bool = True) -> mujoco.MjSpec:
 # Actuator configuration.
 #
 # Armatures are the effective joint armatures in the supplied xSIM MJCF.
-# Effort limits follow its torque-control actuator ctrlrange values. The
-# deployment position actuators are intentionally not retained in the training
-# MJCF: MJLab creates exactly one position actuator for every policy joint.
+# 下列力矩上限来自 xSIM MJCF 的 torque ctrlrange，并在 Stage-I 中统一降额。
+# 训练模型不保留部署用位置执行器，由 MJLab 为每个策略关节创建一个执行器。
 NATURAL_FREQ = 8.0 * 2.0 * 3.1415926535
 DAMPING_RATIO = 2.0
 FRICTIONLOSS = 0.1
+# 高速下可用力矩低于堵转力矩，因此 Ghost 训练统一使用 75% 额定上限。
+GHOST_EFFORT_LIMIT_SCALE = 0.75
 TK3_COMMAND_DELAY_MIN_LAG = 0
 TK3_COMMAND_DELAY_MAX_LAG = 0
 # True: use the explicit Kp/Kd values below. False: use the original formula
@@ -65,7 +66,7 @@ def _position_actuator(
     target_names_expr=target_names_expr,
     stiffness=resolved_stiffness,
     damping=resolved_damping,
-    effort_limit=effort_limit,
+    effort_limit=effort_limit * GHOST_EFFORT_LIMIT_SCALE,
     armature=armature,
     frictionloss=FRICTIONLOSS,
     delay_min_lag=TK3_COMMAND_DELAY_MIN_LAG,

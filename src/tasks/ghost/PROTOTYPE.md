@@ -62,7 +62,7 @@ reproduction.
 Train:
 
 ```bash
-python scripts/train.py TK3-Ghost-Tracking \
+python scripts/train.py TK3-Ghost-Tracking-QRef-Prototype \
   --motion-file datasets/<source>.npz \
   --env.scene.num-envs 8192
 ```
@@ -70,7 +70,7 @@ python scripts/train.py TK3-Ghost-Tracking \
 Generate and validate a physics reference:
 
 ```bash
-python scripts/rollout_ghost.py TK3-Ghost-Tracking \
+python scripts/rollout_ghost.py TK3-Ghost-Tracking-QRef-Prototype \
   --checkpoint-file logs/rsl_rl/tk3_ghost/<run>/model_<iteration>.pt \
   --motion-file datasets/<source>.npz \
   --output-file datasets/<source>_physical.npz

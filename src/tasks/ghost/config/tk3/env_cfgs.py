@@ -2,20 +2,33 @@
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp.actions import JointPositionActionCfg
+from mjlab.managers import RewardTermCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
 from mjlab.utils.spec_config import CollisionCfg
 
+import src.tasks.ghost.mdp as mdp
 from src.assets.robots.tiangong3.tk3_constants_ghost import (
   TK3_ACTION_SCALE,
   TK3_NOMINAL_FOOT_GROUND_FRICTION,
   get_tk3_robot_cfg,
 )
-from src.tasks.ghost.mdp import MotionCommandCfg
+from src.tasks.ghost.mdp import (
+  MotionCommandCfg,
+  ReferenceJointPositionLimitActionCfg,
+)
 from src.tasks.ghost.tracking_env_cfg import make_tracking_env_cfg
 
 
-def tk3_flat_tracking_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
-  """Create the privileged TK3 physical-motion-generator task."""
+_QREF_PROTOTYPE_VERTICAL_RELAXED_BODIES = (
+  "ankle_roll_l_link",
+  "ankle_roll_r_link",
+  "wrist_roll_l_link",
+  "wrist_roll_r_link",
+)
+
+
+def _tk3_base_tracking_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """创建 TK3 物理运动生成器的共享基础配置。"""
   cfg = make_tracking_env_cfg()
 
   cfg.scene.entities = {"robot": get_tk3_robot_cfg()}
@@ -38,8 +51,7 @@ def tk3_flat_tracking_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       num_slots=1,
     ),
     ContactSensorCfg(
-      # Rollout-schema/quality diagnostic only: this signed distance is never
-      # exposed to the policy and is not used by any reward.
+      # 有符号距离不进入策略观测，仅用于惩罚明显穿地。
       name="ground_penetration",
       primary=ContactMatch(mode="body", pattern=r".*", entity="robot"),
       secondary=ContactMatch(mode="body", pattern="terrain"),
@@ -145,10 +157,49 @@ def tk3_flat_tracking_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   return cfg
 
 
-def tk3_assault_tracking_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
-  """Create the clip-assault config with relaxed training boundaries."""
-  cfg = tk3_flat_tracking_env_cfg(play=play)
-  if not play:
-    cfg.episode_length_s = 7.0
-    del cfg.terminations["hard_joint_limit"]
+def tk3_qref_residual_prototype_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """创建仅使用 q_ref 残差动作的 Stage-I Ghost 任务。"""
+  cfg = _tk3_base_tracking_env_cfg(play=play)
+
+  cfg.actions["joint_pos"] = ReferenceJointPositionLimitActionCfg(
+    entity_name="robot",
+    actuator_names=(".*",),
+    scale=TK3_ACTION_SCALE,
+    command_name="motion",
+    residual_clip=1.0,
+    joint_limit_factor=0.98,
+  )
+
+  # q_ref 已经通过动作先验提供关节风格；若再奖励 q/qdot 精确跟踪，
+  # 会重复强化参考动作并抑制策略对不合理 motion 的物理修正。
+  cfg.rewards.pop("motion_joint_pos")
+  cfg.rewards.pop("motion_joint_vel")
+
+  # 放松四个接触末端的竖直位置跟踪，使策略能修正穿地或悬空；
+  # 水平位置、姿态、速度及残差先验仍负责保持原动作风格。
+  cfg.rewards["motion_body_pos"].params["vertical_relaxed_body_names"] = (
+    _QREF_PROTOTYPE_VERTICAL_RELAXED_BODIES
+  )
+
+  # q_ref 本身的变化不会进入残差动作变化率，因此额外约束实际物理轨迹。
+  cfg.rewards["joint_acceleration"] = RewardTermCfg(
+    func=mdp.joint_acc_l2,
+    weight=-2.5e-7,
+  )
+  cfg.rewards["self_collisions"] = RewardTermCfg(
+    func=mdp.self_collision_cost,
+    weight=-1.0,
+    params={"sensor_name": "self_collision", "force_threshold": 10.0},
+  )
+  cfg.rewards["deep_ground_penetration"] = RewardTermCfg(
+    func=mdp.deep_ground_penetration_cost,
+    weight=-0.1,
+    params={
+      "sensor_name": "ground_penetration",
+      "tolerance": 0.002,
+      "scale": 0.005,
+    },
+  )
   return cfg

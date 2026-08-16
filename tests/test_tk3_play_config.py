@@ -6,13 +6,12 @@ import unittest
 from collections.abc import Callable
 
 from mjlab.envs import ManagerBasedRlEnvCfg
+from mjlab.tasks.registry import list_tasks
 
 from src.tasks.ghost.config.tk3.env_cfgs import (
-  tk3_assault_tracking_env_cfg,
+  tk3_qref_residual_prototype_env_cfg as tk3_ghost_tracking_env_cfg,
 )
-from src.tasks.ghost.config.tk3.env_cfgs import (
-  tk3_flat_tracking_env_cfg as tk3_ghost_tracking_env_cfg,
-)
+from src.tasks.ghost.mdp.actions import ReferenceJointPositionLimitActionCfg
 from src.tasks.ghost.mdp.commands import MotionCommandCfg
 from src.tasks.tracking.config.tk3.env_cfgs import (
   tk3_flat_tracking_env_cfg as tk3_tracking_env_cfg,
@@ -23,6 +22,11 @@ EnvCfgFactory = Callable[..., ManagerBasedRlEnvCfg]
 
 class TestTk3PlayConfig(unittest.TestCase):
   """Verify the train/play boundary for production and Ghost TK3 tasks."""
+
+  def test_only_qref_ghost_task_is_registered(self) -> None:
+    ghost_tasks = [task for task in list_tasks() if task.startswith("TK3-Ghost")]
+
+    self.assertEqual(ghost_tasks, ["TK3-Ghost-Tracking-QRef-Prototype"])
 
   def test_production_friction_and_contact_capacity_experiment(self) -> None:
     cfg = tk3_tracking_env_cfg()
@@ -59,18 +63,6 @@ class TestTk3PlayConfig(unittest.TestCase):
           "hard_joint_limit",
         },
       ),
-      (
-        "ghost-assault",
-        tk3_assault_tracking_env_cfg,
-        7.0,
-        {
-          "time_out",
-          "anchor_pos",
-          "anchor_ori",
-          "ee_body_pos",
-          "nonfinite_state",
-        },
-      ),
     )
 
     for name, env_cfg_factory, episode_length_s, termination_names in cases:
@@ -102,12 +94,20 @@ class TestTk3PlayConfig(unittest.TestCase):
     )
     self.assertEqual(motion_cfg.joint_position_range, (0.0, 0.0))
 
+  def test_ghost_uses_only_qref_residual_actions(self) -> None:
+    cfg = tk3_ghost_tracking_env_cfg()
+
+    self.assertIsInstance(
+      cfg.actions["joint_pos"], ReferenceJointPositionLimitActionCfg
+    )
+    self.assertNotIn("motion_joint_pos", cfg.rewards)
+    self.assertNotIn("motion_joint_vel", cfg.rewards)
+
   def test_play_runs_without_terminations(self) -> None:
     """Playback must not reset before the caller finishes its rollout."""
     cases: tuple[tuple[str, EnvCfgFactory], ...] = (
       ("production", tk3_tracking_env_cfg),
       ("ghost", tk3_ghost_tracking_env_cfg),
-      ("ghost-assault", tk3_assault_tracking_env_cfg),
     )
 
     for name, env_cfg_factory in cases:

@@ -703,6 +703,7 @@ class MotionCommand(CommandTerm):
       ranges[:, 0], ranges[:, 1], (len(env_ids), 6), device=self.device
     )
     root_pos[env_ids] += rand_samples[:, 0:3]
+    root_pos[env_ids, 2] += self.cfg.initial_root_z_offset
     orientations_delta = quat_from_euler_xyz(
       rand_samples[:, 3], rand_samples[:, 4], rand_samples[:, 5]
     )
@@ -1092,6 +1093,8 @@ class MotionCommandCfg(CommandTermCfg):
   velocity_range: dict[str, tuple[float, float]] = field(default_factory=dict)
   # RSI：reset 时关节位置扰动范围
   joint_position_range: tuple[float, float] = (-0.52, 0.52)
+  # 仅修正机器人出生高度，不平移参考 motion，避免第 1 帧出现目标跳变。
+  initial_root_z_offset: float = 0.0
   adaptive_bin_s: float = 1.0
   adaptive_min_factor: float = 0.75
   adaptive_max_factor: float = 100.0

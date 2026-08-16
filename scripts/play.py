@@ -20,6 +20,7 @@ from src.assets.robots.tiangong3.tk3_selection import (
   FootCollision,
   select_tk3_robot_cfg,
 )
+from src.tasks.ghost.checkpoint_params import read_run_action_params
 from src.tasks.ghost.mdp import MotionCommandCfg as GhostMotionCommandCfg
 from src.tasks.ghost.onnx_policy import OnnxGhostPolicy
 from src.tasks.ghost.rl import MotionTrackingOnPolicyRunner as GhostTrackingRunner
@@ -65,6 +66,8 @@ class PlayConfig:
   and effort limits. ``.pt`` play always uses the current task constants.
   Pass ``--onnx-params False`` to keep the task robot cfg for ONNX play too.
   """
+  restore_action_params: bool = False
+  """从 ``.pt`` 训练目录恢复动作限幅、缩放和残差限幅。"""
   log_root: str = "logs/rsl_rl"
   """Root directory under which experiment logs are written."""
 
@@ -141,6 +144,29 @@ def run_play(task_id: str, cfg: PlayConfig):
         f"[INFO]: Loading checkpoint: {checkpoint_name} (run: {run_id}, {cached_str})"
       )
     log_dir = resume_path.parent
+
+  if cfg.restore_action_params:
+    if resume_path is None or use_onnx:
+      raise ValueError(
+        "--restore-action-params True requires a local PyTorch checkpoint."
+      )
+    action_clip, action_scale, residual_clip = read_run_action_params(resume_path)
+    joint_pos_action = env_cfg.actions.get("joint_pos")
+    if joint_pos_action is None or not hasattr(joint_pos_action, "scale"):
+      raise TypeError(f"Task {task_id!r} has no configurable joint_pos action scale.")
+    agent_cfg.clip_actions = action_clip
+    joint_pos_action.scale = action_scale
+    if residual_clip is not None:
+      if not hasattr(joint_pos_action, "residual_clip"):
+        raise TypeError(
+          f"Task {task_id!r} does not support the saved residual action clip."
+        )
+      joint_pos_action.residual_clip = residual_clip
+    print(
+      "[INFO]: Restored checkpoint action params: "
+      f"clip={action_clip:g}, scale={action_scale}, "
+      f"residual_clip={residual_clip}"
+    )
 
   if use_onnx:
     if not is_tracking_task:
