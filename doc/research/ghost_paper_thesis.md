@@ -5,6 +5,8 @@
 对象：`src/tasks/ghost/`（main）与 `origin/prototype/ghost-qref-residual`（q_ref 残差原型）。  
 问题：这个点子有没有办法写成中科院一区/二区论文？它能对准哪些具身智能 / 人形运控难点？
 
+刚接触人形运控的话，先读 [`ghost_for_beginners.md`](ghost_for_beginners.md)。那一篇用 TK3 把流水线、穿地/浮空、两阶段、残差和「为什么还不够发一区」摊开讲；本文是投稿口径，术语按审稿人的用法来。
+
 ---
 
 ## 0. 先给结论
