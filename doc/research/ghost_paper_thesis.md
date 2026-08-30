@@ -18,7 +18,7 @@
 | 中科院小类 **二区** RA-L，或 ICRA / IROS + RA-L option | 不够 | **最匹配**。把 Ghost 从「OmniTrack Stage I 的 TK3 复现」改成「带硬可行性门的残差物理投影器」，补 Stage II、消融和至少一组真机/严格 sim-to-sim |
 | 纯工程笔记 / 内部技术报告 | 已经够 | 质量协议、鞋底几何、TCP 允许接触，都有工程价值，但撑不起 SCI 贡献点 |
 
-一句话：**「仿真里 rollout 一遍，把穿地/浮空洗掉再跟踪」这件事，OmniTrack 已经写成了主贡献。** Ghost 现在几乎就是这件事在天工人形 3（TK3）上的特权 PPO 实现。要投稿，必须把贡献从「我们也有 PMG」改成「PMG 还缺的那一层结构」：残差、硬约束、接触模态、在线因果性。
+一句话：**「仿真里 rollout 一遍，把穿地/浮空洗掉再跟踪」这件事，OmniTrack 已经写成了主贡献。** Ghost 现在几乎就是这件事在天工人形 3（TK3）上的特权 PPO 实现。要投稿，必须把贡献从「我们也有 PMG」改成「PMG 还缺的那一层结构」：残差、硬约束、接触模态、在线因果性。不要声称「首次物理一致参考」「首次 \(q_{\mathrm{ref}}\) 残差」「首次在线物理化」——这三条 2026 年会被直接 desk-reject。
 
 ---
 
@@ -44,7 +44,9 @@ OmniTrack 原文（[Li et al., arXiv:2602.23832](https://arxiv.org/abs/2602.2383
 - 真机力矩上限；保存关节、全局位姿/速度、接触。
 - 奖励：14 个 key body 的位姿/速度高斯核 + 根位姿 + 非末端接触惩罚。
 - Stage II：部分可观 `(q, q̇, R, ω, a_{t-1})` + desired-contact + 全套 DR。
+- 动作只写成「输出目标关节位置 \(a_t\) 给 PD」。**没有公布** 是绝对目标、BeyondMimic 式 \(q_0\) 偏置，还是 \(q_{\mathrm{ref}}+a\)。不要默认 OmniTrack 已经做了残差 PMG。
 - 真机：Unitree G1、LAFAN1 零样本、一小时连续、侧空翻、VR/动捕遥操作。
+- 对比停在 DAgger / AAC / OmniH2O / ExBody2 / BeyondMimic，**没有** 对 DSMS、DynaRetarget、OmniRetarget、I-CTRL、PhySINK。
 
 [仓库事实] Ghost 复用了同一套骨架（特权 obs、指令噪声退火、adaptive sampling、undesired contact、力矩限幅、rollout 存接触掩码）。额外工程选择：
 
@@ -73,7 +75,7 @@ q_{\text{cmd}} = \mathrm{clip}\big(q_{\text{ref}} + s\cdot \mathrm{clip}(a, \pm 
 
 并拿掉 `motion_joint_pos/vel` 奖励、放松足/腕竖直跟踪、加上穿地/自碰/关节加速度惩罚。玩具逻辑在 `qref_residual_model.py`：隔离的是 **动作中心** 和 **风格误差 vs 物理质量的优先级**。
 
-这是 Ghost 里真正还没被 OmniTrack 写死的结构。但它也不是空白：见下一节。
+这是 Ghost 里相对 OmniTrack **正文未写死** 的结构（OmniTrack 动作中心未发表）。它仍然不是空白：图形学 SuperTrack（2021）已用参考附近的 PD 偏置；PHC 明确 **拒绝** \(q^d=\hat q+a\)，理由是噪声参考会把残差绑死在坏轨迹上；I-CTRL / RobotDancing / DynaRetarget 的 RL 阶段都用过 \(q_{\mathrm{ref}}\) 残差。Ghost 要回答的是 PHC 的反例：坏参考上残差是否仍优于重写整段动作。
 
 ---
 
@@ -89,19 +91,34 @@ q_{\text{cmd}} = \mathrm{clip}\big(q_{\text{ref}} + s\cdot \mathrm{clip}(a, \pm 
 | **PHUMA / PhySINK** [2510.26236] | 大规模视频 + 物理约束优化（关节限位、着地、消滑步） | 优化式物理化已有；Ghost 必须证明 **仿真交互** 优于 **约束优化**，不能只说「我们用了物理」 |
 | **OmniRetarget** [2509.26633] | interaction mesh + 运动学约束，保人–物–地形接触；G1 跑酷/loco-manipulation | 场景交互的运动学保真已被占；Ghost 的增量应在 **动力学/力矩/支撑**，不是再做一遍几何 retarget |
 | **I-CTRL** [2405.08726]，IEEE RAM 2025 | **有界残差 RL**，在非物理 retarget 上做 constrained refinement；5 个双足、~9k 动作、同一套奖励 | **残差物理化已经发过杂志。** Ghost 的 q_ref 残差若停在「跟踪策略输出 Δq」，会被直接对比 I-CTRL |
-| **KungfuBot** [2506.12851] | 运动处理管线 + 自适应 σ 跟踪；强调仿真里改可行性，对比 ASAP 的残差补 sim-to-real | 「先改参考再跟踪」不是新故事 |
+| **KungfuBot** [2506.12851] | 启发式接触/浮空修正 + Mink IK，再 **每 clip 一个** RL；自适应 σ | 「先改参考再跟踪」不是新故事；且 KungfuBot **并不** 用动力学 rollout 当参考 |
+| **GMR** [2510.02252] | 非均匀缩放 + 两阶段 IK；BeyondMimic 下游对 retarget 伪影极敏感 | 运动学基线。Ghost 的 Stage I 对比至少要包含 GMR/Mink，不能只打 raw CSV |
 | **ASAP** [2502.01143] | MaskedMimic 做 sim-to-data 清洗 + 真机 delta action 对齐动力学 | 「仿真里能跟踪」≠「真机能跟踪」；Ghost 的物理参考只对 **名义仿真** 一致 |
+
+另有一类 **轨迹优化 / 隐式接触**，评审会拿来打「RL Ghost 并不硬约束」：
+
+| 工作 | 做法 | 对 Ghost 的含义 |
+|---|---|---|
+| **Opt2Skill** [2409.20514]，RA-L | DDP 出含力矩的 Digit 参考，再 RL 跟踪 | TO-then-track 已发 RA-L；面向任务接触，不是野 mocap |
+| **DynaRetarget** [2602.06827] | IK 后再做采样 TO，修 OmniRetarget 缺接触/穿地；RL 用残差 + 仿真接触。约 **1 分钟算 1 秒动作** | 离线 loco-manip 接触修复已被占；Ghost 的活口是 **因果/实时**，不是再做一个更慢的箱子 TO |
+| **DSMS** [2608.03116] | 可微 MuJoCo 里 contact-implicit multiple shooting，**不预设接触日程**；真机爬行（手/肘/膝）+ 180° 跳转 | **手膝当承重支撑、从动力学里长出额外接触** 已被演示。Ghost 不能写「首次发现多接触」；只能写规模化 / 野 mocap / 在线 |
+| **KDMR** [2603.09956] | 多接触全身 TO + GRF 触发的足部事件 | 需要地面反力，视觉 mocap 没有 |
+| **SPIDER** [2511.09484] | 采样 + 虚接触课程，大规模运动学→动力学 | 规模靠采样，不是 generalist Ghost |
 
 ### 2.2 残差动作（和 q_ref 原型同构）
 
 | 工作 | 残差加在哪 | 和 Ghost 的差别 |
 |---|---|---|
-| **RobotDancing** [2509.20717] | **可部署跟踪器**：`q_cmd = q_ref + Δq`，单阶段 PPO，G1/H1 真机长时舞蹈 | 残差在 Stage II / 部署端。Ghost 原型把残差放在 **特权 Stage I** |
-| **I-CTRL** | 有界残差 + 约束 MDP（参考轨迹周围的 hypertube） | 残差就是控制策略；无「洗完再训 GMT」两阶段 |
-| **ResMimic** [2510.05070] | GMT 基座 + **物体任务** 残差；真机搬箱 | 残差服务 loco-manipulation，不是洗 mocap 伪影 |
-| **ASAP** | 真机数据学 delta action，补 **sim–real 动力学** | 残差补的是仿真器，不是参考轨迹 |
+| **SuperTrack**（TOG 2021） | 图形学角色：运动学关节上的 PD **偏置**，消融显示优于绝对目标 | 残差-绕-参考比人形 RL 潮更早；不能当 2026 新方法 |
+| **PHC** [2305.06456] | 讨论过 \(q^d=\hat q+a\)，因噪声参考而改用 **绝对** PD 目标 | 对 Ghost 最硬的反例：坏 mocap 上残差可能更差 |
+| **RobotDancing** [2509.20717] | **可部署跟踪器**：`q_cmd = q_ref + Δq`，常 **每条序列一个策略**；髋/膝选择性残差 | 残差在部署端。Ghost 原型放在 **特权 Stage I** |
+| **I-CTRL** | 有界残差 + 约束 MDP（参考周围 hypertube） | 残差就是控制策略；无「洗完再训 GMT」；无环境交互 |
+| **DynaRetarget** | TO 之后的 RL 用残差动作空间 | 残差跟在慢 TO 后面，不是特权 PMG 本身 |
+| **ResMimic** [2510.05070] | GMT **动作** 上残差 \(a_{\mathrm{GMT}}+\Delta a\)，不是 \(q_{\mathrm{ref}}\) | 物体 loco-manipulation |
+| **ASAP** | 真机数据学 \(\Delta a=\pi^\Delta(s,a)\)；全文 4 个踝关节残差才稳（23 维会过热、摔过两台 G1） | 残差补仿真器，不是参考库 |
+| **BeyondMimic** | \(q=\bar q+\alpha a\)，绕 **默认姿态** 不是绕参考 | Ghost main 目前就是这个家族 |
 
-[判断] 「输出 Δq 而不是绝对关节目标」本身 **不够当 2026 年二区贡献点**。能写的是：**残差放在特权投影器里，并配硬可行性门，使 Stage II 不再承担「判断参考是否物理」的职责**——这是 OmniTrack 的解耦主张 + I-CTRL/RobotDancing 的残差结构，组合后要靠实验证明 1+1>2。
+[判断] 「输出 Δq 而不是绝对关节目标」本身 **不够当 2026 年二区贡献点**。能写的是：在 **特权投影器** 里用残差，并配硬可行性门，使 Stage II 不再判断「参考该不该跟」——这是 OmniTrack 的解耦 + I-CTRL/RobotDancing 的残差，组合后必须用实验证明 1+1>2，并正面回答 PHC「噪声参考不该残差」。
 
 ### 2.3 一般运动跟踪（Ghost 的下游，不是 Ghost 自己）
 
@@ -111,7 +128,7 @@ BeyondMimic [2508.08241]、GMT [2506.14770]、UniTracker [2507.07356]、OmniH2O�
 
 ## 3. 还能对准哪些真正没解决的运控问题
 
-下面只列 **OmniTrack / I-CTRL / PHUMA / RobotDancing 之后仍然空着、且 Ghost 代码已经碰到边** 的问题。每条标注：问题是否真实、Ghost 现在是否真的在解、要写成论文还缺什么。
+下面只列 **OmniTrack / I-CTRL / PHUMA / RobotDancing / DSMS / DynaRetarget 之后仍然空着、且 Ghost 代码已经碰到边** 的问题。每条标注：问题是否真实、Ghost 现在是否真的在解、要写成论文还缺什么。
 
 ### 3.1 跟踪精度 vs 平衡稳定的冲突（真问题，但主叙事已被占）
 
@@ -119,11 +136,11 @@ BeyondMimic [2508.08241]、GMT [2506.14770]、UniTracker [2507.07356]、OmniH2O�
 
 Ghost 现在：用特权 PPO + 软奖励 **缓解** 冲突，没有 **消除** 冲突——穿地/悬空仍是惩罚项，质量门在 rollout **之后**（`quality_report`），训练时策略仍可在穿地轨迹上拿跟踪分。
 
-要升级成贡献：把可行性变成 **训练中不可妥协的约束**（CMDP / Lagrangian / 门控奖励 / 拒绝采样），跟踪只在可行集上优化。这才是「解耦」的算法化，而不只是「分两阶段训练」。
+要升级成贡献：把可行性变成 **训练中不可妥协的约束**（CMDP / Lagrangian / 门控奖励 / 拒绝采样），跟踪只在可行集上优化。OmniTrack 说「strictly adhere to dynamics」只表示 **rollout 是仿真轨迹**，力矩/接触/风格仍是软代价。这才是「解耦」的算法化，而不只是「分两阶段训练」。DSMS / Opt2Skill 已经在少数技能上做了动力学硬约束；Ghost 的空档是 **野 mocap、数据集规模、实时**，不是「RL 也能约束」。
 
 ### 3.2 风格保真 vs 物理可行的 Pareto（真问题，几乎没人报告）
 
-OmniTrack Table I：物理化后 LAFAN1 MPJPE +21 mm、AMASS +16 mm，穿地/浮空到 0。这是 **一个工作点**。没有：用户可控的偏差预算、多目标前沿、失败时应放弃风格还是放弃该 clip。
+OmniTrack Table I：物理化后 LAFAN1 MPJPE +21 mm、AMASS +16 mm，穿地/浮空到 0。这是 **一个工作点**。I-CTRL 用固定 hypertube \(\delta\) 限风格偏离；KungfuBot 用自适应 \(\sigma\) **放松跟踪**；SoftMimic [2510.17792] 用柔顺换刚度。仍然几乎没人报告 **用户可控的 Pareto**（风格权重或 \(\delta(t)\)）以及失败时改高度、改接触、还是拒绝 clip。
 
 [仓库事实] q_ref 玩具原型已经把 `tracking_weight` vs `feasibility_weight` 当成核心旋钮。论文里这应升格为：
 
@@ -141,7 +158,7 @@ Ghost 的差异化：**把残差用在特权滤波器，而不是部署策略。
 - 原型注释写得很清楚：再奖励 `q/q̇` 精确跟踪会抑制对坏参考的修正。
 - Stage II 可以继续用绝对或残差；论文要消融的是 **PMG 动作中心**，不是再发一篇 RobotDancing。
 
-未解决点：残差半径（`scale=0.25 rad`）能否覆盖「必须改接触模态」的大修正（摔倒爬起、手撑地）？太大则退回绝对动作，太小则洗不掉浮空。需要 **按接触相位自适应的残差半径**，这文献里几乎没有。
+未解决点：残差半径（`scale=0.25 rad`）能否覆盖「必须改接触模态」的大修正（摔倒爬起、手撑地）？太大则退回绝对动作，太小则洗不掉浮空。I-CTRL 的 \(\delta\) 是固定状态管；需要 **按接触相位自适应的残差半径**，并在坏参考上证明残差不比 PHC 的绝对动作更糟。
 
 ### 3.4 接触模态从 mocap 迁不过来（真问题，比舞蹈跟踪更空）
 
@@ -153,7 +170,7 @@ Ghost 的差异化：**把残差用在特权滤波器，而不是部署策略。
 
 [仓库事实] Ghost 已把 `left_tcp_link / right_tcp_link / wrist_pitch_*` 列入允许接触，undesired contact 惩罚其余；质量报告统计 undesired frames。这是 **loco-support（用手当支撑）**，还不是 ResMimic 那种带物体的 loco-manipulation。
 
-空档：**从不可行动作里发现「该用哪只手/脚支撑」**，而不是只惩罚错误接触。OmniRetarget 用 interaction mesh 保几何接触；Ghost 可以用仿真接触力 + 特权策略做 **动力学层的接触日程投影**。起身、爬行、手撑过渡，比再洗一段 LAFAN1 舞蹈更像新问题。
+空档要写窄：**从野 mocap（无预设接触日程、无 GRF）里，在线或近实时地长出承重接触**，并在数据集规模上归档。已经不能写「首次手膝支撑」——DSMS 真机爬行已经演示接触发现；OmniRetarget / DynaRetarget 修的是场景/物体接触，但是离线运动学或分钟级 TO。KungfuBot 的接触掩码是踝关节阈值启发式。Ghost 若只在平地舞上允许 TCP 接触，这条贡献是空的。
 
 ### 3.5 在线遥操作的因果性与延迟（真问题，OmniTrack 只演示了管线）
 
@@ -163,7 +180,7 @@ OmniTrack §III-C：动捕/VR → 仿真里跑 PMG → GMT 上真机。这是 **
 - 影子仿真与真机状态不同步时，投影还对不对；
 - 100 Hz 残差修正 vs 整段 clip rollout 的延迟。
 
-残差 PMG 更适合做成 **因果滤波器**：当前帧 `q_ref` 进来，输出有界 `Δq`，不需要在仿真里「演完整个未来」。这对准遥操作运控的真实难点：**指令是脏的、连续的、不可回放的，控制器必须在有界延迟内给出力矩可行命令。** OmniTrack 证明管线能用；定量延迟–稳定性–风格保真仍空着。
+残差 PMG 更适合做成 **因果滤波器**：当前帧 `q_ref` 进来，输出有界 `Δq`，不需要在仿真里「演完整个未来」。DynaRetarget / DSMS 是 **离线分钟级**，不能当遥操作。OmniH2O / TWIST / CLONE 有遥操作，但没有显式 Ghost。活口是 **测过的端到端延迟、因果前视、抖动 VR**，不是再发一段遥操作视频。
 
 ### 3.6 「对哪套物理一致」（真问题，Ghost 现在完全没碰）
 
@@ -188,7 +205,8 @@ OmniTrack 浮空定义（根高 >0.8 m 且持续 1 s）对 G1 站立身高还凑
 |---|---|
 | 部分可观 generalist 跟踪本身 | 那是 Stage II / BeyondMimic / OmniTrack GMT |
 | 敏捷技能的 sim-to-real（空翻落地软硬） | ASAP；Ghost 关掉 DR 是反方向 |
-| 带物体的 loco-manipulation | ResMimic / OmniRetarget；仓库没有物体 |
+| 带物体的 loco-manipulation | ResMimic / OmniRetarget / DynaRetarget；仓库没有物体 |
+| 「首次」仿真可行参考或 \(q_{\mathrm{ref}}\) 残差 | PHC、I-CTRL、Opt2Skill、OmniTrack、DSMS、SuperTrack、RobotDancing |
 | 视觉–语言–动作、场景理解 | 观测里没有视觉 |
 | 形式化安全证书（CBF/可达集） | 仿真 rollout 只证明「这个仿真器里没炸」，不是安全 |
 | 电池、热、关节温度长时约束 | 质量门没有热模型 |
@@ -202,7 +220,7 @@ OmniTrack 浮空定义（根高 >0.8 m 且持续 1 s）对 G1 站立身高还凑
    换机器人 + 换仿真器。二区都会嫌 incremental；会议 poster 都勉强。
 
 2. **「我们提出残差动作」**  
-   I-CTRL、RobotDancing、ResMimic、ASAP 都是残差。必须写清残差加在 **特权投影器**，并证明它改变了可行性–风格权衡。
+   SuperTrack、I-CTRL、RobotDancing、DynaRetarget、ResMimic、ASAP 都是残差。必须写清残差加在 **特权投影器**，正面回答 PHC 的反例，并证明它改变了可行性–风格权衡。
 
 3. **只有 Stage I、没有下游**  
    OmniTrack 的核心实验是：物理参考让 GMT 在数据变大时仍稳（Fig. 4, Tab. A.8）。Ghost 若只报穿地/浮空下降，没有「Stage II 成功率和 MPJPE」，贡献停在数据清洗。
@@ -212,6 +230,12 @@ OmniTrack 浮空定义（根高 >0.8 m 且持续 1 s）对 G1 站立身高还凑
 
 5. **用 OmniTrack 的浮空/穿地定义却宣称全面更好**  
    度量不一致。应同时报他们的定义和 Ghost 的定义。
+
+6. **「首次在线物理化」**  
+   OmniTrack §III-C 已经把 GMR → 仿真 PMG → 真机 GMT 写成应用。没有延迟/因果消融就是跟进。
+
+7. **「RL rollout 等于硬约束满足」**  
+   评审会拿 DSMS / Opt2Skill。软 PPO + 事后 `quality_passed` 不能声称 constraint satisfaction。
 
 ---
 
@@ -246,7 +270,7 @@ OmniTrack 浮空定义（根高 >0.8 m 且持续 1 s）对 G1 站立身高还凑
 **最低实验规模：**
 
 - 数据：≥ 一个公开集（Unitree-retargeted LAFAN1 或等价 TK3 重定向）+ 一组 **接触丰富** clip（起身、手撑、跪、爬）。只有舞蹈不够。
-- Stage I：穿透/悬空/力矩饱和 vs raw、vs PhySINK 类优化（若做不了 PhySINK，至少做 Mink/GMR 运动学基线）。
+- Stage I：穿透/悬空/力矩饱和 vs raw、vs GMR/Mink 运动学基线、vs 绝对动作 PMG。若声称多接触，必须能说明和 DSMS（慢、少技能）或 DynaRetarget（离线 TO）差在实时/规模，而不是「我们也会爬」。
 - Stage II：成功率、MPJPE、Δvel，seen / hard / 若可能 unseen。
 - 真机：至少 3–5 条（走、舞、起身或手撑过渡）。没有真机就走 RA-L 的 sim-to-sim 强化 + 明确写成 limitation。
 
@@ -265,7 +289,7 @@ OmniTrack 浮空定义（根高 >0.8 m 且持续 1 s）对 G1 站立身高还凑
 - 多接触日程：起身、爬行、手撑站起；接触切换相对 mocap 的编辑距离。
 - 真机遥操作，而不仅是离线 replay。
 
-这对准的难点是 **在线全身遥操作在脏指令下的稳定性**（TWIST/OmniH2O/OmniTrack 都演示过，但缺少因果投影的定量）。没有真机遥操作不要投 TRO。
+这对准的难点是 **在线全身遥操作在脏指令下的稳定性**（TWIST/OmniH2O/OmniTrack 都演示过，但缺少因果投影的定量）。必须能说明为何不用 DSMS（太慢）而用残差 RL。没有真机遥操作不要投 TRO。
 
 ### 切口 C — 不要单独投，可并进 A 的第三贡献
 
@@ -321,8 +345,9 @@ OmniTrack 浮空定义（根高 >0.8 m 且持续 1 s）对 G1 站立身高还凑
 
 不要声称：
 
-- 首次提出两阶段跟踪；
-- 首次提出残差关节动作；
+- 首次提出两阶段跟踪或物理一致参考；
+- 首次提出残差关节动作或在线物理化；
+- 首次从动力学发现手/膝支撑（DSMS）；
 - 解决了 sim-to-real；
 - 通用具身智能或 VLA。
 
@@ -358,3 +383,12 @@ Ghost 现在是 **OmniTrack Stage I 在 TK3/MuJoCo 上的高质量复现 + 一�
 - ResMimic: <https://arxiv.org/html/2510.05070>
 - BeyondMimic: <https://arxiv.org/html/2508.08241v3>
 - KungfuBot: <https://arxiv.org/abs/2506.12851>
+- GMR: <https://arxiv.org/abs/2510.02252>
+- SuperTrack: Fussell et al., ACM TOG 2021
+- PHC: <https://arxiv.org/abs/2305.06456>
+- Opt2Skill: <https://arxiv.org/abs/2409.20514>
+- DynaRetarget: <https://arxiv.org/abs/2602.06827>
+- DSMS: <https://arxiv.org/abs/2608.03116>
+- SoftMimic: <https://arxiv.org/abs/2510.17792>
+- SPIDER: <https://arxiv.org/abs/2511.09484>
+- KDMR: <https://arxiv.org/abs/2603.09956>
