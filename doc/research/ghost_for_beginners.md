@@ -298,4 +298,4 @@ Ghost 现在重叠的部分：开挂、不随机化物理、参考加噪声、�
 2. **乐谱假（穿地、浮空、扭不动）时，歌手越认真越摔。** OmniTrack 已经把「先洗谱」写成主贡献；再写一遍换 TK3 不够。
 3. **还能写的是洗的方法：** 只改错字（残差）而不是重写；洗的时候红灯不能闯（硬门）；手该不该撑地要能从脏动捕里看出来；直播不能先听完整首歌（因果）。每一条都要有对比实验，不能靠直觉。
 
-下一篇投稿口径仍看 [`ghost_paper_thesis.md`](ghost_paper_thesis.md)。代码上若只做一件事：把 Ghost 洗出来的 npz 接到 `TK3-Tracking` 上，你会立刻懂「两阶段」不是口号。
+下一篇投稿口径仍看 [`ghost_paper_thesis.md`](ghost_paper_thesis.md)。若洗过的 npz 已经在训 Tracking、却出现碎步或高难生数据更好训，改看 [`ghost_beyond_omnitrack.md`](ghost_beyond_omnitrack.md)。代码上若只做一件事：把 Ghost 洗出来的 npz 接到 `TK3-Tracking` 上，你会立刻懂「两阶段」不是口号。

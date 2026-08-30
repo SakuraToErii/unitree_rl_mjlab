@@ -7,6 +7,8 @@
 
 刚接触人形运控的话，先读 [`ghost_for_beginners.md`](ghost_for_beginners.md)。那一篇用 TK3 把流水线、穿地/浮空、两阶段、残差和「为什么还不够发一区」摊开讲；本文是投稿口径，术语按审稿人的用法来。
 
+若 Stage II 已经用 Ghost npz 训起来、痛点变成碎步和高难生数据更好训，主切口改为 [`ghost_beyond_omnitrack.md`](ghost_beyond_omnitrack.md)：不要再和 OmniTrack 拼「谁洗得更干净」，而要写选择性物理化（替换 / 融合 / 切片路由）。
+
 ---
 
 ## 0. 先给结论
