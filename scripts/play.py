@@ -20,17 +20,13 @@ from src.assets.robots.tiangong3.tk3_selection import (
   FootCollision,
   select_tk3_robot_cfg,
 )
-from src.tasks.ghost.mdp import MotionCommandCfg as GhostMotionCommandCfg
-from src.tasks.ghost.onnx_policy import OnnxGhostPolicy
-from src.tasks.ghost.rl import MotionTrackingOnPolicyRunner as GhostTrackingRunner
 from src.tasks.tracking.mdp import MotionCommandCfg as TrackingMotionCommandCfg
-from src.tasks.tracking.onnx_control import OnnxControlOverlay
 from src.tasks.tracking.rl import (
   MotionTrackingOnPolicyRunner as TrackingMotionTrackingRunner,
 )
 
-_MOTION_COMMAND_CFG_TYPES = (TrackingMotionCommandCfg, GhostMotionCommandCfg)
-_MOTION_TRACKING_RUNNER_TYPES = (TrackingMotionTrackingRunner, GhostTrackingRunner)
+_MOTION_COMMAND_CFG_TYPES = (TrackingMotionCommandCfg,)
+_MOTION_TRACKING_RUNNER_TYPES = (TrackingMotionTrackingRunner,)
 
 
 @dataclass(frozen=True)
@@ -59,11 +55,6 @@ class PlayConfig:
 
   ``None`` preserves the task's registered robot configuration; ``sole`` uses
   the convex rubber mesh and ``xml`` uses the original MJCF cylinder rails.
-  """
-  onnx_params: bool = True
-  """When playing an ``.onnx``, overlay its Kp/Kd, action_scale, default pose,
-  and effort limits. ``.pt`` play always uses the current task constants.
-  Pass ``--onnx-params False`` to keep the task robot cfg for ONNX play too.
   """
   log_root: str = "logs/rsl_rl"
   """Root directory under which experiment logs are written."""
@@ -116,14 +107,16 @@ def run_play(task_id: str, cfg: PlayConfig):
     motion_cmd.motion_file = str(motion_path)
   log_dir: Path | None = None
   resume_path: Path | None = None
-  use_onnx = False
   if TRAINED_MODE:
     log_root_path = (Path(cfg.log_root) / agent_cfg.experiment_name).resolve()
     if cfg.checkpoint_file is not None:
       resume_path = Path(cfg.checkpoint_file).expanduser().resolve()
       if not resume_path.exists():
         raise FileNotFoundError(f"Checkpoint file not found: {resume_path}")
-      use_onnx = resume_path.suffix.lower() == ".onnx"
+      if resume_path.suffix.lower() == ".onnx":
+        raise ValueError(
+          "ONNX checkpoints are not supported by play.py; pass a .pt checkpoint."
+        )
       print(f"[INFO]: Loading checkpoint: {resume_path.name}")
     else:
       if cfg.wandb_run_path is None:
@@ -142,26 +135,12 @@ def run_play(task_id: str, cfg: PlayConfig):
       )
     log_dir = resume_path.parent
 
-  if use_onnx:
-    if not is_tracking_task:
-      raise ValueError("ONNX play is currently supported only for tracking tasks.")
-    if cfg.num_envs not in (None, 1):
-      raise ValueError("ONNX play requires --num-envs 1.")
-    env_cfg.scene.num_envs = 1
-  elif cfg.num_envs is not None:
+  if cfg.num_envs is not None:
     env_cfg.scene.num_envs = cfg.num_envs
   if cfg.video_height is not None:
     env_cfg.viewer.height = cfg.video_height
   if cfg.video_width is not None:
     env_cfg.viewer.width = cfg.video_width
-
-  onnx_control: OnnxControlOverlay | None = None
-  onnx_applied: tuple[str, ...] = ()
-  if use_onnx and cfg.onnx_params:
-    assert resume_path is not None
-    onnx_control = OnnxControlOverlay.from_onnx(resume_path)
-    onnx_applied = onnx_control.apply_action_cfg(env_cfg.actions["joint_pos"])
-    print(f"[INFO]: Overlaying control params from {resume_path.name}")
 
   render_mode = "rgb_array" if (TRAINED_MODE and cfg.video) else None
   if cfg.video and DUMMY_MODE:
@@ -170,16 +149,6 @@ def run_play(task_id: str, cfg: PlayConfig):
     )
   env = ManagerBasedRlEnv(cfg=env_cfg, device=device, render_mode=render_mode)
   try:
-    if onnx_control is not None:
-      applied = onnx_applied + onnx_control.apply_runtime(env)
-      if applied:
-        print(
-          f"[INFO]: Applied ONNX {', '.join(applied)} "
-          f"({len(onnx_control.joint_names)} joints)."
-        )
-      else:
-        print("[WARN]: ONNX has no supported control-parameter metadata.")
-
     if TRAINED_MODE and cfg.video:
       print("[INFO] Recording videos during play")
       assert log_dir is not None  # log_dir is set in TRAINED_MODE block
@@ -210,17 +179,6 @@ def run_play(task_id: str, cfg: PlayConfig):
             return 2 * torch.rand(action_shape, device=env.unwrapped.device) - 1
 
         policy = PolicyRandom()
-    elif use_onnx:
-      assert resume_path is not None
-      policy_env = env.unwrapped
-      command = policy_env.command_manager.get_term("motion")
-      policy = OnnxGhostPolicy(
-        resume_path,
-        command,
-        device=device,
-        env=policy_env,
-      )
-      print(f"[INFO]: Using ONNX policy: {resume_path}")
     else:
       runner_cls = load_runner_cls(task_id) or MjlabOnPolicyRunner
       runner = runner_cls(env, asdict(agent_cfg), device=device)

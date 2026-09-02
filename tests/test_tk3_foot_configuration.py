@@ -6,7 +6,6 @@ import importlib.util
 import pickle
 import sys
 import unittest
-from collections.abc import Callable
 from dataclasses import fields
 from pathlib import Path
 
@@ -20,15 +19,6 @@ from src.assets.robots.tiangong3.tk3_constants import (
   get_tk3_robot_cfg,
 )
 from src.assets.robots.tiangong3.tk3_constants import get_spec as get_tk3_spec
-from src.assets.robots.tiangong3.tk3_constants_ghost import (
-  TK3_ARTICULATION as TK3_GHOST_ARTICULATION,
-)
-from src.assets.robots.tiangong3.tk3_constants_ghost import (
-  get_spec as get_tk3_ghost_spec,
-)
-from src.assets.robots.tiangong3.tk3_constants_ghost import (
-  get_tk3_robot_cfg as get_tk3_ghost_robot_cfg,
-)
 from src.assets.robots.tiangong3.tk3_selection import select_tk3_robot_cfg
 from src.assets.robots.tiangong3.tk3_spec import TK3_BASE_HEIGHT
 
@@ -49,9 +39,6 @@ def _load_script_config(script_name: str, config_name: str) -> type:
 
 PlayConfig = _load_script_config("play", "PlayConfig")
 TrainConfig = _load_script_config("train", "TrainConfig")
-
-RobotCfgFactory = Callable[..., EntityCfg]
-ROBOT_CFG_FACTORIES = (get_tk3_robot_cfg, get_tk3_ghost_robot_cfg)
 
 XML_FOOT_GEOMS = {
   f"foot_{side}_{part}_{position}"
@@ -136,133 +123,102 @@ class Tk3FootConfigurationTest(unittest.TestCase):
     self.assertIsNone(train_foot.default)
     self.assertIsNone(play_foot.default)
 
-  def test_no_argument_factories_preserve_legacy_foot_modes(self) -> None:
+  def test_no_argument_factory_preserves_xml_feet(self) -> None:
     production_model = Entity(get_tk3_robot_cfg()).spec.compile()
-    ghost_model = Entity(get_tk3_ghost_robot_cfg()).spec.compile()
 
     self.assertEqual(_foot_geom_names(production_model), XML_FOOT_GEOMS)
-    self.assertEqual(_foot_geom_names(ghost_model), SOLE_FOOT_GEOMS)
 
-  def test_public_spec_builders_preserve_legacy_defaults_and_switching(self) -> None:
+  def test_public_spec_builder_preserves_defaults_and_switching(self) -> None:
     self.assertEqual(_foot_geom_names(get_tk3_spec().compile()), XML_FOOT_GEOMS)
-    self.assertEqual(
-      _foot_geom_names(get_tk3_ghost_spec().compile()), SOLE_FOOT_GEOMS
-    )
     self.assertEqual(
       _foot_geom_names(get_tk3_spec(convex_sole=True).compile()),
       SOLE_FOOT_GEOMS,
     )
-    self.assertEqual(
-      _foot_geom_names(get_tk3_ghost_spec(convex_sole=False).compile()),
-      XML_FOOT_GEOMS,
-    )
 
   def test_foot_modes_build_expected_geometry(self) -> None:
-    for robot_cfg_factory in ROBOT_CFG_FACTORIES:
-      with self.subTest(robot_cfg_factory=robot_cfg_factory.__module__):
-        xml_model = Entity(
-          robot_cfg_factory(convex_sole=False)
-        ).spec.compile()
-        sole_model = Entity(
-          robot_cfg_factory(convex_sole=True)
-        ).spec.compile()
+    xml_model = Entity(get_tk3_robot_cfg(convex_sole=False)).spec.compile()
+    sole_model = Entity(get_tk3_robot_cfg(convex_sole=True)).spec.compile()
 
-        self.assertEqual(_foot_geom_names(xml_model), XML_FOOT_GEOMS)
-        self.assertEqual(_foot_geom_names(sole_model), SOLE_FOOT_GEOMS)
-        self.assertTrue(SOLE_MESHES.isdisjoint(_mesh_names(xml_model)))
-        self.assertTrue(SOLE_MESHES <= _mesh_names(sole_model))
+    self.assertEqual(_foot_geom_names(xml_model), XML_FOOT_GEOMS)
+    self.assertEqual(_foot_geom_names(sole_model), SOLE_FOOT_GEOMS)
+    self.assertTrue(SOLE_MESHES.isdisjoint(_mesh_names(xml_model)))
+    self.assertTrue(SOLE_MESHES <= _mesh_names(sole_model))
 
   def test_foot_contact_parameters_use_mujoco_defaults(self) -> None:
-    for robot_cfg_factory in ROBOT_CFG_FACTORIES:
-      with self.subTest(robot_cfg_factory=robot_cfg_factory.__module__):
-        xml_model = Entity(
-          robot_cfg_factory(convex_sole=False)
-        ).spec.compile()
-        sole_model = Entity(
-          robot_cfg_factory(convex_sole=True)
-        ).spec.compile()
+    xml_model = Entity(get_tk3_robot_cfg(convex_sole=False)).spec.compile()
+    sole_model = Entity(get_tk3_robot_cfg(convex_sole=True)).spec.compile()
 
-        for geom_name in XML_FOOT_GEOMS:
-          geom_id = xml_model.geom(geom_name).id
-          np.testing.assert_allclose(
-            xml_model.geom_solref[geom_id], MUJOCO_DEFAULT_SOLREF
-          )
-          np.testing.assert_allclose(
-            xml_model.geom_solimp[geom_id], MUJOCO_DEFAULT_SOLIMP
-          )
-        for geom_name in SOLE_FOOT_GEOMS:
-          geom_id = sole_model.geom(geom_name).id
-          np.testing.assert_allclose(
-            sole_model.geom_solref[geom_id], MUJOCO_DEFAULT_SOLREF
-          )
-          np.testing.assert_allclose(
-            sole_model.geom_solimp[geom_id], MUJOCO_DEFAULT_SOLIMP
-          )
+    for geom_name in XML_FOOT_GEOMS:
+      geom_id = xml_model.geom(geom_name).id
+      np.testing.assert_allclose(
+        xml_model.geom_solref[geom_id], MUJOCO_DEFAULT_SOLREF
+      )
+      np.testing.assert_allclose(
+        xml_model.geom_solimp[geom_id], MUJOCO_DEFAULT_SOLIMP
+      )
+    for geom_name in SOLE_FOOT_GEOMS:
+      geom_id = sole_model.geom(geom_name).id
+      np.testing.assert_allclose(
+        sole_model.geom_solref[geom_id], MUJOCO_DEFAULT_SOLREF
+      )
+      np.testing.assert_allclose(
+        sole_model.geom_solimp[geom_id], MUJOCO_DEFAULT_SOLIMP
+      )
 
   def test_home_pose_clears_ground(self) -> None:
-    for robot_cfg_factory in ROBOT_CFG_FACTORIES:
-      for convex_sole, maximum_clearance in ((False, 0.002), (True, 0.001)):
-        with self.subTest(
-          robot_cfg_factory=robot_cfg_factory.__module__,
-          convex_sole=convex_sole,
-        ):
-          model, data = _compile_home_with_ground(
-            robot_cfg_factory(convex_sole=convex_sole)
-          )
-          foot_geom_ids = tuple(
-            geom_id
-            for geom_id in range(model.ngeom)
-            if model.geom(geom_id).name.startswith("foot_")
-          )
-          clearance = min(
-            _geom_minimum_z(model, data, geom_id)
-            for geom_id in foot_geom_ids
-          )
+    for convex_sole, maximum_clearance in ((False, 0.002), (True, 0.001)):
+      with self.subTest(convex_sole=convex_sole):
+        model, data = _compile_home_with_ground(
+          get_tk3_robot_cfg(convex_sole=convex_sole)
+        )
+        foot_geom_ids = tuple(
+          geom_id
+          for geom_id in range(model.ngeom)
+          if model.geom(geom_id).name.startswith("foot_")
+        )
+        clearance = min(
+          _geom_minimum_z(model, data, geom_id)
+          for geom_id in foot_geom_ids
+        )
 
-          self.assertAlmostEqual(model.key_qpos[0, 2], TK3_BASE_HEIGHT)
-          self.assertGreaterEqual(clearance, 0.0)
-          self.assertLess(clearance, maximum_clearance)
+        self.assertAlmostEqual(model.key_qpos[0, 2], TK3_BASE_HEIGHT)
+        self.assertGreaterEqual(clearance, 0.0)
+        self.assertLess(clearance, maximum_clearance)
 
-          ground_id = model.geom("ground").id
-          ground_contacts = (
-            contact
-            for contact in data.contact
-            if ground_id in (contact.geom1, contact.geom2)
-          )
-          self.assertTrue(
-            all(contact.dist >= 0.0 for contact in ground_contacts)
-          )
+        ground_id = model.geom("ground").id
+        ground_contacts = (
+          contact
+          for contact in data.contact
+          if ground_id in (contact.geom1, contact.geom2)
+        )
+        self.assertTrue(
+          all(contact.dist >= 0.0 for contact in ground_contacts)
+        )
 
   def test_robot_cfg_is_picklable_and_builds_fresh_specs(self) -> None:
-    for robot_cfg_factory in ROBOT_CFG_FACTORIES:
-      for convex_sole in (False, True):
-        with self.subTest(
-          robot_cfg_factory=robot_cfg_factory.__module__,
-          convex_sole=convex_sole,
-        ):
-          restored_cfg = pickle.loads(
-            pickle.dumps(robot_cfg_factory(convex_sole=convex_sole))
-          )
-          first_spec = restored_cfg.spec_fn()
-          second_spec = restored_cfg.spec_fn()
+    for convex_sole in (False, True):
+      with self.subTest(convex_sole=convex_sole):
+        restored_cfg = pickle.loads(
+          pickle.dumps(get_tk3_robot_cfg(convex_sole=convex_sole))
+        )
+        first_spec = restored_cfg.spec_fn()
+        second_spec = restored_cfg.spec_fn()
 
-          self.assertIsNot(first_spec, second_spec)
-          first_spec.worldbody.add_geom(
-            name="first_spec_only",
-            type=mujoco.mjtGeom.mjGEOM_SPHERE,
-            size=(0.01, 0.0, 0.0),
-          )
-          self.assertEqual(
-            first_spec.compile().ngeom,
-            second_spec.compile().ngeom + 1,
-          )
+        self.assertIsNot(first_spec, second_spec)
+        first_spec.worldbody.add_geom(
+          name="first_spec_only",
+          type=mujoco.mjtGeom.mjGEOM_SPHERE,
+          size=(0.01, 0.0, 0.0),
+        )
+        self.assertEqual(
+          first_spec.compile().ngeom,
+          second_spec.compile().ngeom + 1,
+        )
 
-  def test_task_selector_preserves_variant_and_non_tk3_default(self) -> None:
+  def test_task_selector_preserves_tk3_and_rejects_non_tk3(self) -> None:
     production = select_tk3_robot_cfg("TK3-Tracking", foot="sole")
-    ghost = select_tk3_robot_cfg("TK3-Ghost-Tracking", foot="xml")
 
     self.assertIsNone(select_tk3_robot_cfg("TK3-Tracking", foot=None))
-    self.assertIsNone(select_tk3_robot_cfg("TK3-Ghost-Tracking", foot=None))
     self.assertIsNone(select_tk3_robot_cfg("Unitree-G1-Flat", foot=None))
     self.assertIsNotNone(production)
     assert production is not None
@@ -270,13 +226,6 @@ class Tk3FootConfigurationTest(unittest.TestCase):
     self.assertEqual(
       _foot_geom_names(Entity(production).spec.compile()),
       SOLE_FOOT_GEOMS,
-    )
-    self.assertIsNotNone(ghost)
-    assert ghost is not None
-    self.assertIs(ghost.articulation, TK3_GHOST_ARTICULATION)
-    self.assertEqual(
-      _foot_geom_names(Entity(ghost).spec.compile()),
-      XML_FOOT_GEOMS,
     )
     for foot in ("xml", "sole"):
       with self.subTest(foot=foot), self.assertRaisesRegex(

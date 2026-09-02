@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Replay a TK3 motion NPZ with the Ghost sole; measure ground clearance.
+"""Replay a TK3 motion NPZ with the convex sole; measure ground clearance.
 
 Uses the same foot-plane signed-distance test as ground_npz_motion.py.
 Tracked foot/hand collision geoms turn red below --clearance.  Labels show each
@@ -25,7 +25,7 @@ import tyro
 from mjlab.entity.entity import Entity
 from mjlab.utils import spec_config as spec_cfg
 
-from src.assets.robots.tiangong3.tk3_constants_ghost import (
+from src.assets.robots.tiangong3.tk3_constants import (
   FOOT_GEOM_PATTERN,
   get_tk3_robot_cfg,
 )
@@ -67,7 +67,7 @@ _SUN_LIGHT = spec_cfg.LightCfg(
 
 
 def _build_model() -> tuple[mujoco.MjModel, mujoco.MjData, list[int], int, list[str]]:
-  robot = Entity(get_tk3_robot_cfg())
+  robot = Entity(get_tk3_robot_cfg(convex_sole=True))
   spec = robot.spec
 
   ground = spec.worldbody.add_geom()

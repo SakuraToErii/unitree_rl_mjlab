@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Replay two TK3 motion NPZs in one viewer, left/right, frame-synced.
 
-The two Ghost robots share a clock: the same frame index is applied every
+The two robots share a clock: the same frame index is applied every
 tick. A shorter clip holds its last pose. Playback dt follows the left NPZ fps.
 
 Example::
@@ -24,7 +24,7 @@ import numpy as np
 import tyro
 from mjlab.entity.entity import Entity
 
-from src.assets.robots.tiangong3.tk3_constants_ghost import get_tk3_robot_cfg
+from src.assets.robots.tiangong3.tk3_constants import get_tk3_robot_cfg
 
 _SCRIPTS = Path(__file__).resolve().parent
 if str(_SCRIPTS) not in sys.path:
@@ -59,7 +59,7 @@ class _Slot:
 
 
 def _robot_spec() -> mujoco.MjSpec:
-  return Entity(get_tk3_robot_cfg()).spec
+  return Entity(get_tk3_robot_cfg(convex_sole=True)).spec
 
 
 def _build_pair_model() -> tuple[mujoco.MjModel, mujoco.MjData]:

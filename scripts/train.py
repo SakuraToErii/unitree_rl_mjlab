@@ -21,10 +21,9 @@ from src.assets.robots.tiangong3.tk3_selection import (
   FootCollision,
   select_tk3_robot_cfg,
 )
-from src.tasks.ghost.mdp import MotionCommandCfg as GhostMotionCommandCfg
 from src.tasks.tracking.mdp import MotionCommandCfg as TrackingMotionCommandCfg
 
-_MOTION_COMMAND_CFG_TYPES = (TrackingMotionCommandCfg, GhostMotionCommandCfg)
+_MOTION_COMMAND_CFG_TYPES = (TrackingMotionCommandCfg,)
 
 
 @dataclass(frozen=True)
