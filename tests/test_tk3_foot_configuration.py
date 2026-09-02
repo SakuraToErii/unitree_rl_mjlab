@@ -1,13 +1,9 @@
-"""Regression tests for selectable TK3 foot collision geometry."""
+"""Regression tests for TK3 XML foot collision geometry."""
 
 from __future__ import annotations
 
-import importlib.util
 import pickle
-import sys
 import unittest
-from dataclasses import fields
-from pathlib import Path
 
 import mujoco
 import numpy as np
@@ -15,30 +11,10 @@ from mjlab.entity import EntityCfg
 from mjlab.entity.entity import Entity
 
 from src.assets.robots.tiangong3.tk3_constants import (
-  TK3_ARTICULATION,
+  TK3_BASE_HEIGHT,
   get_tk3_robot_cfg,
 )
 from src.assets.robots.tiangong3.tk3_constants import get_spec as get_tk3_spec
-from src.assets.robots.tiangong3.tk3_selection import select_tk3_robot_cfg
-from src.assets.robots.tiangong3.tk3_spec import TK3_BASE_HEIGHT
-
-_SCRIPTS_DIR = Path(__file__).parents[1] / "scripts"
-
-
-def _load_script_config(script_name: str, config_name: str) -> type:
-  module_name = f"_tk3_{script_name}_config"
-  spec = importlib.util.spec_from_file_location(
-    module_name, _SCRIPTS_DIR / f"{script_name}.py"
-  )
-  assert spec is not None and spec.loader is not None
-  module = importlib.util.module_from_spec(spec)
-  sys.modules[module_name] = module
-  spec.loader.exec_module(module)
-  return getattr(module, config_name)
-
-
-PlayConfig = _load_script_config("play", "PlayConfig")
-TrainConfig = _load_script_config("train", "TrainConfig")
 
 XML_FOOT_GEOMS = {
   f"foot_{side}_{part}_{position}"
@@ -92,146 +68,81 @@ def _geom_minimum_z(
   geom_id: int,
 ) -> float:
   geom_type = model.geom_type[geom_id]
-  if geom_type == mujoco.mjtGeom.mjGEOM_MESH:
-    mesh_id = model.geom_dataid[geom_id]
-    vertex_start = model.mesh_vertadr[mesh_id]
-    vertex_end = vertex_start + model.mesh_vertnum[mesh_id]
-    vertices = model.mesh_vert[vertex_start:vertex_end]
-    rotation = data.geom_xmat[geom_id].reshape(3, 3)
-    world_vertices = data.geom_xpos[geom_id] + vertices @ rotation.T
-    return float(world_vertices[:, 2].min())
+  if geom_type != mujoco.mjtGeom.mjGEOM_CYLINDER:
+    raise AssertionError(f"Unsupported TK3 foot geom type: {geom_type}")
 
-  if geom_type == mujoco.mjtGeom.mjGEOM_CYLINDER:
-    rotation = data.geom_xmat[geom_id].reshape(3, 3)
-    axis = rotation[:, 2]
-    radius, half_length = model.geom_size[geom_id, :2]
-    radial_z = radius * np.sqrt(max(0.0, 1.0 - axis[2] ** 2))
-    return float(
-      data.geom_xpos[geom_id, 2]
-      - abs(axis[2]) * half_length
-      - radial_z
-    )
-
-  raise AssertionError(f"Unsupported TK3 foot geom type: {geom_type}")
+  rotation = data.geom_xmat[geom_id].reshape(3, 3)
+  axis = rotation[:, 2]
+  radius, half_length = model.geom_size[geom_id, :2]
+  radial_z = radius * np.sqrt(max(0.0, 1.0 - axis[2] ** 2))
+  return float(
+    data.geom_xpos[geom_id, 2]
+    - abs(axis[2]) * half_length
+    - radial_z
+  )
 
 
 class Tk3FootConfigurationTest(unittest.TestCase):
-  def test_script_configs_preserve_registered_foot_mode_by_default(self) -> None:
-    train_foot = next(field for field in fields(TrainConfig) if field.name == "foot")
-    play_foot = next(field for field in fields(PlayConfig) if field.name == "foot")
+  def test_robot_uses_xml_cylinder_feet(self) -> None:
+    model = Entity(get_tk3_robot_cfg()).spec.compile()
 
-    self.assertIsNone(train_foot.default)
-    self.assertIsNone(play_foot.default)
+    self.assertEqual(_foot_geom_names(model), XML_FOOT_GEOMS)
+    self.assertTrue(SOLE_FOOT_GEOMS.isdisjoint(_foot_geom_names(model)))
+    self.assertTrue(SOLE_MESHES.isdisjoint(_mesh_names(model)))
 
-  def test_no_argument_factory_preserves_xml_feet(self) -> None:
-    production_model = Entity(get_tk3_robot_cfg()).spec.compile()
-
-    self.assertEqual(_foot_geom_names(production_model), XML_FOOT_GEOMS)
-
-  def test_public_spec_builder_preserves_defaults_and_switching(self) -> None:
+  def test_spec_builder_uses_xml_feet(self) -> None:
     self.assertEqual(_foot_geom_names(get_tk3_spec().compile()), XML_FOOT_GEOMS)
-    self.assertEqual(
-      _foot_geom_names(get_tk3_spec(convex_sole=True).compile()),
-      SOLE_FOOT_GEOMS,
-    )
-
-  def test_foot_modes_build_expected_geometry(self) -> None:
-    xml_model = Entity(get_tk3_robot_cfg(convex_sole=False)).spec.compile()
-    sole_model = Entity(get_tk3_robot_cfg(convex_sole=True)).spec.compile()
-
-    self.assertEqual(_foot_geom_names(xml_model), XML_FOOT_GEOMS)
-    self.assertEqual(_foot_geom_names(sole_model), SOLE_FOOT_GEOMS)
-    self.assertTrue(SOLE_MESHES.isdisjoint(_mesh_names(xml_model)))
-    self.assertTrue(SOLE_MESHES <= _mesh_names(sole_model))
 
   def test_foot_contact_parameters_use_mujoco_defaults(self) -> None:
-    xml_model = Entity(get_tk3_robot_cfg(convex_sole=False)).spec.compile()
-    sole_model = Entity(get_tk3_robot_cfg(convex_sole=True)).spec.compile()
+    model = Entity(get_tk3_robot_cfg()).spec.compile()
 
     for geom_name in XML_FOOT_GEOMS:
-      geom_id = xml_model.geom(geom_name).id
+      geom_id = model.geom(geom_name).id
       np.testing.assert_allclose(
-        xml_model.geom_solref[geom_id], MUJOCO_DEFAULT_SOLREF
+        model.geom_solref[geom_id], MUJOCO_DEFAULT_SOLREF
       )
       np.testing.assert_allclose(
-        xml_model.geom_solimp[geom_id], MUJOCO_DEFAULT_SOLIMP
-      )
-    for geom_name in SOLE_FOOT_GEOMS:
-      geom_id = sole_model.geom(geom_name).id
-      np.testing.assert_allclose(
-        sole_model.geom_solref[geom_id], MUJOCO_DEFAULT_SOLREF
-      )
-      np.testing.assert_allclose(
-        sole_model.geom_solimp[geom_id], MUJOCO_DEFAULT_SOLIMP
+        model.geom_solimp[geom_id], MUJOCO_DEFAULT_SOLIMP
       )
 
   def test_home_pose_clears_ground(self) -> None:
-    for convex_sole, maximum_clearance in ((False, 0.002), (True, 0.001)):
-      with self.subTest(convex_sole=convex_sole):
-        model, data = _compile_home_with_ground(
-          get_tk3_robot_cfg(convex_sole=convex_sole)
-        )
-        foot_geom_ids = tuple(
-          geom_id
-          for geom_id in range(model.ngeom)
-          if model.geom(geom_id).name.startswith("foot_")
-        )
-        clearance = min(
-          _geom_minimum_z(model, data, geom_id)
-          for geom_id in foot_geom_ids
-        )
+    model, data = _compile_home_with_ground(get_tk3_robot_cfg())
+    foot_geom_ids = tuple(
+      geom_id
+      for geom_id in range(model.ngeom)
+      if model.geom(geom_id).name.startswith("foot_")
+    )
+    clearance = min(
+      _geom_minimum_z(model, data, geom_id) for geom_id in foot_geom_ids
+    )
 
-        self.assertAlmostEqual(model.key_qpos[0, 2], TK3_BASE_HEIGHT)
-        self.assertGreaterEqual(clearance, 0.0)
-        self.assertLess(clearance, maximum_clearance)
+    self.assertAlmostEqual(model.key_qpos[0, 2], TK3_BASE_HEIGHT)
+    self.assertGreaterEqual(clearance, 0.0)
+    self.assertLess(clearance, 0.002)
 
-        ground_id = model.geom("ground").id
-        ground_contacts = (
-          contact
-          for contact in data.contact
-          if ground_id in (contact.geom1, contact.geom2)
-        )
-        self.assertTrue(
-          all(contact.dist >= 0.0 for contact in ground_contacts)
-        )
+    ground_id = model.geom("ground").id
+    ground_contacts = (
+      contact
+      for contact in data.contact
+      if ground_id in (contact.geom1, contact.geom2)
+    )
+    self.assertTrue(all(contact.dist >= 0.0 for contact in ground_contacts))
 
   def test_robot_cfg_is_picklable_and_builds_fresh_specs(self) -> None:
-    for convex_sole in (False, True):
-      with self.subTest(convex_sole=convex_sole):
-        restored_cfg = pickle.loads(
-          pickle.dumps(get_tk3_robot_cfg(convex_sole=convex_sole))
-        )
-        first_spec = restored_cfg.spec_fn()
-        second_spec = restored_cfg.spec_fn()
+    restored_cfg = pickle.loads(pickle.dumps(get_tk3_robot_cfg()))
+    first_spec = restored_cfg.spec_fn()
+    second_spec = restored_cfg.spec_fn()
 
-        self.assertIsNot(first_spec, second_spec)
-        first_spec.worldbody.add_geom(
-          name="first_spec_only",
-          type=mujoco.mjtGeom.mjGEOM_SPHERE,
-          size=(0.01, 0.0, 0.0),
-        )
-        self.assertEqual(
-          first_spec.compile().ngeom,
-          second_spec.compile().ngeom + 1,
-        )
-
-  def test_task_selector_preserves_tk3_and_rejects_non_tk3(self) -> None:
-    production = select_tk3_robot_cfg("TK3-Tracking", foot="sole")
-
-    self.assertIsNone(select_tk3_robot_cfg("TK3-Tracking", foot=None))
-    self.assertIsNone(select_tk3_robot_cfg("Unitree-G1-Flat", foot=None))
-    self.assertIsNotNone(production)
-    assert production is not None
-    self.assertIs(production.articulation, TK3_ARTICULATION)
-    self.assertEqual(
-      _foot_geom_names(Entity(production).spec.compile()),
-      SOLE_FOOT_GEOMS,
+    self.assertIsNot(first_spec, second_spec)
+    first_spec.worldbody.add_geom(
+      name="first_spec_only",
+      type=mujoco.mjtGeom.mjGEOM_SPHERE,
+      size=(0.01, 0.0, 0.0),
     )
-    for foot in ("xml", "sole"):
-      with self.subTest(foot=foot), self.assertRaisesRegex(
-        ValueError, "only supported for TK3"
-      ):
-        select_tk3_robot_cfg("Unitree-G1-Flat", foot=foot)
+    self.assertEqual(
+      first_spec.compile().ngeom,
+      second_spec.compile().ngeom + 1,
+    )
 
 
 if __name__ == "__main__":

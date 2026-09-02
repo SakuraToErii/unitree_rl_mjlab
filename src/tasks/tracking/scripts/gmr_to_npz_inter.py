@@ -7,7 +7,7 @@ forward kinematics and body-velocity evaluation; Isaac Sim is not required.
 
 Example:
 
-  python scripts/gmr_to_npz_inter.py \
+  python src/tasks/tracking/scripts/gmr_to_npz_inter.py \
     --input_file /path/to/motion.pkl \
     --input_fps 30 \
     --frame_range 122 722 \

@@ -15,11 +15,11 @@ whole-body +Z lift; joint angles are unchanged and aerial frames are left
 alone (lift is never negative). Never overwrites the input NPZ.
 
 Example:
-  python scripts/ground_npz_motion.py \\
+  python src/tasks/tracking/scripts/ground_npz_motion.py \\
     --input datasets/1_1_padding.npz \\
     --output datasets/1_1_padding_grounded.npz
 
-  python scripts/ground_npz_motion.py \\
+  python src/tasks/tracking/scripts/ground_npz_motion.py \\
     --input datasets/1-1_paddingv2.npz \\
     --output datasets/1-1_paddingv2_tcp8mm.npz \\
     --target hands \\

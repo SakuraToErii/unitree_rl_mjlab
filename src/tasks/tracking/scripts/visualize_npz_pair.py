@@ -6,7 +6,7 @@ tick. A shorter clip holds its last pose. Playback dt follows the left NPZ fps.
 
 Example::
 
-  python scripts/visualize_npz_pair.py \\
+  python src/tasks/tracking/scripts/visualize_npz_pair.py \\
     --left datasets/perfect1-1.npz \\
     --right datasets/perfect2-1.npz
 """
@@ -59,7 +59,7 @@ class _Slot:
 
 
 def _robot_spec() -> mujoco.MjSpec:
-  return Entity(get_tk3_robot_cfg(convex_sole=True)).spec
+  return Entity(get_tk3_robot_cfg()).spec
 
 
 def _build_pair_model() -> tuple[mujoco.MjModel, mujoco.MjData]:

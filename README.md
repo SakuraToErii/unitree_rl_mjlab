@@ -124,8 +124,7 @@ uv run python scripts/play.py Unitree-G1-Tracking-No-State-Estimation --motion_f
 
 - 训练时在每次保存模型时会同步导出 policy.onnx 文件在同层目录下，可用于实物部署。
 - Tracking play 会在 checkpoint 同级的 `exported/` 下导出 motion-aware
-  `policy.onnx`；`TK3-Tracking` 还会生成匹配当前 nominal 参数的
-  `BeyondMimic_dance.yaml`。
+  `policy.onnx`。
 
 ### 4. 实物部署
 

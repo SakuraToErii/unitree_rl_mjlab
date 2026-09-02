@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Replay a TK3 motion NPZ with the convex sole; measure ground clearance.
+"""Replay a TK3 motion NPZ with the XML feet; measure ground clearance.
 
 Uses the same foot-plane signed-distance test as ground_npz_motion.py.
 Tracked foot/hand collision geoms turn red below --clearance.  Labels show each
@@ -8,7 +8,7 @@ foot or hand's minimum signed distance to z=0 in millimeters.
 Scene uses the same checker floor + directional light as scene_tiangong3.xml.
 
 Example:
-  python scripts/visualize_npz_foot_penetration.py \\
+  python src/tasks/tracking/scripts/visualize_npz_foot_penetration.py \\
     --input datasets/1_1_padding.npz
 """
 
@@ -67,7 +67,7 @@ _SUN_LIGHT = spec_cfg.LightCfg(
 
 
 def _build_model() -> tuple[mujoco.MjModel, mujoco.MjData, list[int], int, list[str]]:
-  robot = Entity(get_tk3_robot_cfg(convex_sole=True))
+  robot = Entity(get_tk3_robot_cfg())
   spec = robot.spec
 
   ground = spec.worldbody.add_geom()

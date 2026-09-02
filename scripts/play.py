@@ -16,10 +16,6 @@ from mjlab.utils.torch import configure_torch_backends
 from mjlab.utils.wrappers import VideoRecorder
 from mjlab.viewer import NativeMujocoViewer, ViserPlayViewer
 
-from src.assets.robots.tiangong3.tk3_selection import (
-  FootCollision,
-  select_tk3_robot_cfg,
-)
 from src.tasks.tracking.mdp import MotionCommandCfg as TrackingMotionCommandCfg
 from src.tasks.tracking.rl import (
   MotionTrackingOnPolicyRunner as TrackingMotionTrackingRunner,
@@ -50,12 +46,6 @@ class PlayConfig:
   mjlab enables tyro FlagConversionOff, so pass an explicit value:
   ``--no-terminations True`` (bare ``--no-terminations`` is rejected).
   """
-  foot: FootCollision | None = None
-  """Optional TK3 foot collision override.
-
-  ``None`` preserves the task's registered robot configuration; ``sole`` uses
-  the convex rubber mesh and ``xml`` uses the original MJCF cylinder rails.
-  """
   log_root: str = "logs/rsl_rl"
   """Root directory under which experiment logs are written."""
 
@@ -70,10 +60,6 @@ def run_play(task_id: str, cfg: PlayConfig):
 
   env_cfg = load_env_cfg(task_id, play=True)
   agent_cfg = load_rl_cfg(task_id)
-  robot_cfg = select_tk3_robot_cfg(task_id, foot=cfg.foot)
-  if robot_cfg is not None:
-    env_cfg.scene.entities["robot"] = robot_cfg
-    print(f"[INFO]: TK3 feet: {cfg.foot}")
 
   DUMMY_MODE = cfg.agent in {"zero", "random"}
   TRAINED_MODE = not DUMMY_MODE
@@ -199,14 +185,6 @@ def run_play(task_id: str, cfg: PlayConfig):
           run_name=resume_path.parent.name,
         )
         print(f"[INFO] Exported motion policy: {onnx_path}")
-        if task_id == "TK3-Tracking":
-          config_path = runner.export_beyond_mimic_config(
-            export_dir / "BeyondMimic_dance.yaml",
-            onnx_filename=onnx_path.name,
-            physical_dt=0.01,
-            decimation=1,
-          )
-          print(f"[INFO] Exported BeyondMimic config: {config_path}")
 
     # Handle "auto" viewer selection.
     if cfg.viewer == "auto":
