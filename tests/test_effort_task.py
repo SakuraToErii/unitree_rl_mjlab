@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import unittest
 from dataclasses import asdict
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import torch
@@ -12,18 +13,18 @@ from mjlab.actuator import IdealPdActuatorCfg
 from mjlab.entity import Entity
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.envs.mdp.actions import JointEffortActionCfg, JointPositionActionCfg
+from mjlab.rl.exporter_utils import get_base_metadata
 from mjlab.tasks.registry import list_tasks, load_env_cfg
 from mjlab.utils.lab_api.string import resolve_matching_names_values
 from rsl_rl.utils import resolve_callable
 from tensordict import TensorDict
 
 import src.tasks  # noqa: F401
+import src.tasks.effort.mdp as mdp
 from src.tasks.effort.config.g1.action_cfg import (
   EFFORT_ACTION_CLIP,
   EFFORT_ACTION_LIMIT,
-  NOMINAL_TORQUE,
-  RESIDUAL_ACTION_SCALE,
-  g1_residual_effort_action_cfg,
+  g1_effort_action_cfg,
 )
 from src.tasks.effort.config.g1.env_cfgs import (
   unitree_g1_flat_env_cfg,
@@ -41,6 +42,7 @@ from src.tasks.effort.config.g1.robot_cfg import (
   get_g1_effort_robot_cfg,
 )
 from src.tasks.effort.rl.models import ResidualMhaModel, ResidualMlpModel
+from src.tasks.effort.rl.runner import get_effort_metadata
 
 G1_EFFORT_TASK_IDS = (
   "Unitree-G1-Effort-Rough",
@@ -77,6 +79,17 @@ def _last_linear(module: torch.nn.Module) -> torch.nn.Linear:
   return layers[-1]
 
 
+class _FakeActionManager:
+  def __init__(self, term, term_name="joint_effort"):
+    self._term = term
+    self.active_terms = [term_name]
+    self.action_term_dim = [term.action_dim]
+    self.prev_action = torch.zeros(term.num_envs, term.action_dim)
+
+  def get_term(self, name):
+    return self._term
+
+
 class EffortTaskTest(unittest.TestCase):
   def test_effort_tasks_are_registered_without_colliding_with_velocity(self) -> None:
     task_ids = list_tasks()
@@ -109,25 +122,18 @@ class EffortTaskTest(unittest.TestCase):
     self.assertEqual(len(set(controlled_joints)), 29)
     self.assertEqual(set(controlled_joints), set(robot.joint_names))
 
-  def test_residual_effort_action_matches_motor_limits_and_nominal_torque(self) -> None:
+  def test_absolute_effort_action_is_full_y1_with_zero_offset(self) -> None:
     robot = Entity(get_g1_effort_robot_cfg())
     joint_names = list(robot.joint_names)
-    action_cfg = g1_residual_effort_action_cfg()
+    action_cfg = g1_effort_action_cfg()
     self.assertIsInstance(action_cfg, JointEffortActionCfg)
-    self.assertEqual(action_cfg.scale, RESIDUAL_ACTION_SCALE)
-    self.assertEqual(action_cfg.offset, NOMINAL_TORQUE)
+    self.assertEqual(action_cfg.scale, EFFORT_ACTION_LIMIT)
+    self.assertEqual(action_cfg.offset, 0.0)
     self.assertEqual(action_cfg.clip, EFFORT_ACTION_CLIP)
-    self.assertEqual(set(NOMINAL_TORQUE), set(joint_names))
 
     indices, _, limits = resolve_matching_names_values(EFFORT_ACTION_LIMIT, joint_names)
     self.assertEqual(sorted(indices), list(range(29)))
     self.assertEqual(len(limits), 29)
-    self.assertTrue(
-      all(
-        RESIDUAL_ACTION_SCALE[expr] == 0.4 * limit
-        for expr, limit in EFFORT_ACTION_LIMIT.items()
-      )
-    )
 
     env = Mock(spec=ManagerBasedRlEnv)
     env.num_envs = 2
@@ -138,8 +144,7 @@ class EffortTaskTest(unittest.TestCase):
 
     zero_action = torch.zeros(2, 29)
     action.process_actions(zero_action)
-    expected_nominal = torch.tensor([NOMINAL_TORQUE[name] for name in joint_names])
-    torch.testing.assert_close(action._processed_actions[0], expected_nominal)
+    torch.testing.assert_close(action._processed_actions, torch.zeros(2, 29))
 
     action.process_actions(torch.full((2, 29), 100.0))
     expected_upper = torch.tensor(
@@ -153,6 +158,222 @@ class EffortTaskTest(unittest.TestCase):
       ]
     )
     torch.testing.assert_close(action._processed_actions[0], expected_upper)
+
+  def test_effort_export_metadata_uses_torque_action_contract(self) -> None:
+    env = ManagerBasedRlEnv(load_env_cfg("Unitree-G1-Effort-Flat"), device="cpu")
+    try:
+      with self.assertRaises(KeyError):
+        get_base_metadata(env, "test-effort")
+
+      metadata = get_effort_metadata(env, "test-effort")
+      joint_names = list(env.scene["robot"].joint_names)
+      self.assertEqual(metadata["run_path"], "test-effort")
+      self.assertEqual(metadata["action_term"], "joint_effort")
+      self.assertEqual(metadata["action_names"], joint_names)
+      for actual, expected in zip(
+        metadata["action_offset"],
+        [0.0] * len(joint_names),
+        strict=True,
+      ):
+        self.assertAlmostEqual(actual, expected, places=5)
+      expected_scale = [
+        next(
+          limit
+          for joint_expr, limit in EFFORT_ACTION_LIMIT.items()
+          if re.fullmatch(joint_expr, name)
+        )
+        for name in joint_names
+      ]
+      for actual, expected in zip(
+        metadata["action_scale"], expected_scale, strict=True
+      ):
+        self.assertAlmostEqual(actual, expected, places=5)
+      expected_clip = [
+        [
+          -next(
+            limit
+            for joint_expr, limit in EFFORT_ACTION_LIMIT.items()
+            if re.fullmatch(joint_expr, name)
+          ),
+          next(
+            limit
+            for joint_expr, limit in EFFORT_ACTION_LIMIT.items()
+            if re.fullmatch(joint_expr, name)
+          ),
+        ]
+        for name in joint_names
+      ]
+      for actual, expected in zip(
+        metadata["action_clip"], expected_clip, strict=True
+      ):
+        for actual_bound, expected_bound in zip(actual, expected, strict=True):
+          self.assertAlmostEqual(actual_bound, expected_bound, places=5)
+      self.assertEqual(metadata["joint_stiffness"], [0.0] * len(joint_names))
+      self.assertEqual(metadata["joint_damping"], [0.0] * len(joint_names))
+      self.assertNotEqual(
+        metadata["action_clip"][joint_names.index("left_ankle_pitch_joint")],
+        [-50.0, 50.0],
+      )
+      self.assertEqual(len(metadata["joint_effort_limit"]), len(joint_names))
+    finally:
+      env.close()
+
+  def test_g1_effort_rewards_use_walkable_pose_split(self) -> None:
+    cfg = load_env_cfg("Unitree-G1-Effort-Flat")
+
+    self.assertNotIn("pose", cfg.rewards)
+    self.assertNotIn("stand_still", cfg.rewards)
+    self.assertNotIn("action_rate_l2", cfg.rewards)
+    self.assertIn("effort_action_rate_l2", cfg.rewards)
+    self.assertEqual(
+      cfg.rewards["joint_deviation_arms"].params["asset_cfg"].joint_names,
+      (".*_shoulder_.*_joint", ".*_elbow_joint", ".*_wrist_.*"),
+    )
+    self.assertEqual(
+      cfg.rewards["joint_deviation_waists"].params["asset_cfg"].joint_names,
+      ("waist.*",),
+    )
+    self.assertEqual(
+      cfg.rewards["joint_deviation_legs"].params["asset_cfg"].joint_names,
+      (".*_hip_roll_joint", ".*_hip_yaw_joint"),
+    )
+    for term_name in (
+      "joint_deviation_arms",
+      "joint_deviation_waists",
+      "joint_deviation_legs",
+    ):
+      joint_names = cfg.rewards[term_name].params["asset_cfg"].joint_names
+      self.assertFalse(any("hip_pitch" in name or "knee" in name for name in joint_names))
+    self.assertEqual(
+      cfg.actions["joint_effort"].offset,
+      0.0,
+    )
+    self.assertEqual(cfg.actions["joint_effort"].scale, EFFORT_ACTION_LIMIT)
+    self.assertEqual(
+      cfg.rewards["base_height"].params["target_height"],
+      EFFORT_STANDING_ROOT_HEIGHT,
+    )
+
+  def test_other_effort_variants_configure_new_rewards(self) -> None:
+    g1_23dof_cfg = load_env_cfg("Unitree-G1-23Dof-Effort-Flat")
+    go2_cfg = load_env_cfg("Unitree-Go2-Effort-Flat")
+
+    for cfg in (g1_23dof_cfg, go2_cfg):
+      self.assertNotIn("pose", cfg.rewards)
+      self.assertNotIn("stand_still", cfg.rewards)
+      self.assertNotIn("action_rate_l2", cfg.rewards)
+      self.assertIn("effort_action_rate_l2", cfg.rewards)
+
+    self.assertEqual(
+      g1_23dof_cfg.rewards["joint_deviation_legs"].params["asset_cfg"].joint_names,
+      (".*_hip_roll_joint", ".*_hip_yaw_joint"),
+    )
+    self.assertEqual(
+      g1_23dof_cfg.rewards["base_height"].params["target_height"],
+      0.79,
+    )
+
+    self.assertEqual(go2_cfg.rewards["joint_deviation_arms"].weight, 0.0)
+    self.assertEqual(go2_cfg.rewards["joint_deviation_waists"].weight, 0.0)
+    self.assertEqual(
+      go2_cfg.rewards["joint_deviation_legs"].params["asset_cfg"].joint_names,
+      (".*_hip_joint",),
+    )
+    self.assertEqual(
+      go2_cfg.rewards["base_height"].params["target_height"],
+      0.32,
+    )
+    self.assertEqual(
+      go2_cfg.rewards["foot_gait"].params["offset"],
+      [0.0, 0.5, 0.5, 0.0],
+    )
+    self.assertIn("illegal_contact", go2_cfg.terminations)
+
+  def test_effort_action_rate_uses_processed_torque_fraction(self) -> None:
+    robot = Entity(get_g1_effort_robot_cfg())
+    env = Mock(spec=ManagerBasedRlEnv)
+    env.num_envs = 2
+    env.device = "cpu"
+    env.scene = {"robot": robot}
+    action = g1_effort_action_cfg().build(env)
+    action_manager = _FakeActionManager(action)
+    env.action_manager = action_manager
+
+    action.process_actions(torch.zeros(2, action.action_dim))
+    torch.testing.assert_close(mdp.effort_action_rate_l2(env), torch.zeros(2))
+
+    current_raw = torch.zeros(2, action.action_dim)
+    current_raw[:, 0] = 1.0
+    action_manager.prev_action = torch.zeros_like(current_raw)
+    action.process_actions(current_raw)
+    torch.testing.assert_close(
+      mdp.effort_action_rate_l2(env), torch.ones(2), atol=1.0e-6, rtol=0.0
+    )
+
+    ankle_index = action.target_names.index("left_ankle_pitch_joint")
+    current_raw.zero_()
+    current_raw[:, ankle_index] = 100.0
+    action_manager.prev_action = torch.zeros_like(current_raw)
+    action.process_actions(current_raw)
+    torch.testing.assert_close(
+      mdp.effort_action_rate_l2(env), torch.ones(2), atol=1.0e-6, rtol=0.0
+    )
+
+  def test_effort_rewards_use_torque_and_pose_data(self) -> None:
+    robot = Entity(get_g1_effort_robot_cfg())
+    action_env = Mock(spec=ManagerBasedRlEnv)
+    action_env.num_envs = 2
+    action_env.device = "cpu"
+    action_env.scene = {"robot": robot}
+    action = g1_effort_action_cfg().build(action_env)
+    action_manager = _FakeActionManager(action)
+    action_env.action_manager = action_manager
+
+    raw_action = torch.zeros(2, action.action_dim)
+    hip_pitch_index = action.target_names.index("left_hip_pitch_joint")
+    raw_action[:, hip_pitch_index] = 1.0
+    action.process_actions(raw_action)
+
+    asset = SimpleNamespace(
+      data=SimpleNamespace(
+        joint_vel=torch.zeros(2, action.action_dim),
+        joint_pos=torch.zeros(2, action.action_dim),
+        default_joint_pos=torch.zeros(2, action.action_dim),
+        root_link_pos_w=torch.tensor(
+          [[0.0, 0.0, 0.789733], [0.0, 0.0, 0.789733]]
+        ),
+      )
+    )
+    action_env.scene = {"robot": asset}
+
+    torch.testing.assert_close(
+      mdp.energy(action_env), torch.zeros(2)
+    )
+    asset.data.joint_vel[:, hip_pitch_index] = 1.0
+    torch.testing.assert_close(
+      mdp.energy(action_env), torch.full((2,), 71.0)
+    )
+
+    joint_cfg = mdp.SceneEntityCfg("robot", joint_ids=[0, 1])
+    torch.testing.assert_close(
+      mdp.joint_deviation_l1(action_env, asset_cfg=joint_cfg), torch.zeros(2)
+    )
+    asset.data.joint_pos[:, 0] = 0.25
+    torch.testing.assert_close(
+      mdp.joint_deviation_l1(action_env, asset_cfg=joint_cfg),
+      torch.full((2,), 0.25),
+    )
+
+    torch.testing.assert_close(
+      mdp.base_height_l2(
+        action_env, target_height=0.789733
+      ),
+      torch.zeros(2),
+    )
+    torch.testing.assert_close(
+      mdp.base_height_l2(action_env, target_height=0.7),
+      torch.full((2,), (0.789733 - 0.7) ** 2),
+    )
 
   def test_mha_variants_only_add_observation_history(self) -> None:
     pairs = (

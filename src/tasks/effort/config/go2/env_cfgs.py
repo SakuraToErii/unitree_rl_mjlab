@@ -1,4 +1,4 @@
-"""Unitree Go2 residual-effort velocity environment configurations."""
+"""Unitree Go2 absolute-effort velocity environment configurations."""
 
 from typing import Literal
 
@@ -17,7 +17,7 @@ from mjlab.sensor import (
 from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 
 import src.tasks.effort.mdp as mdp
-from src.tasks.effort.config.go2.action_cfg import go2_residual_effort_action_cfg
+from src.tasks.effort.config.go2.action_cfg import go2_effort_action_cfg
 from src.tasks.effort.config.go2.robot_cfg import get_go2_effort_robot_cfg
 from src.tasks.effort.velocity_env_cfg import enable_mha_history, make_effort_env_cfg
 
@@ -27,7 +27,7 @@ TerrainType = Literal["rough", "obstacles"]
 def unitree_go2_rough_env_cfg(
   play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
-  """Create Unitree Go2 rough terrain residual-effort configuration."""
+  """Create Unitree Go2 rough terrain absolute-effort configuration."""
   cfg = make_effort_env_cfg()
 
   cfg.sim.mujoco.ccd_iterations = 500
@@ -88,7 +88,14 @@ def unitree_go2_rough_env_cfg(
   if cfg.scene.terrain is not None and cfg.scene.terrain.terrain_generator is not None:
     cfg.scene.terrain.terrain_generator.curriculum = True
 
-  cfg.actions = {"joint_effort": go2_residual_effort_action_cfg()}
+  cfg.actions = {"joint_effort": go2_effort_action_cfg()}
+
+  cfg.rewards["joint_deviation_arms"].weight = 0.0
+  cfg.rewards["joint_deviation_waists"].weight = 0.0
+  cfg.rewards["joint_deviation_legs"].params["asset_cfg"].joint_names = (
+    ".*_hip_joint",
+  )
+  cfg.rewards["base_height"].params["target_height"] = 0.32
 
   cfg.viewer.body_name = "base_link"
   cfg.viewer.distance = 1.5
@@ -96,22 +103,6 @@ def unitree_go2_rough_env_cfg(
 
   cfg.events["foot_friction"].params["asset_cfg"].geom_names = geom_names
   cfg.events["base_com"].params["asset_cfg"].body_names = ("base_link",)
-
-  cfg.rewards["pose"].params["std_standing"] = {
-    r".*(FR|FL|RR|RL)_hip_joint.*": 0.05,
-    r".*(FR|FL|RR|RL)_thigh_joint.*": 0.1,
-    r".*(FR|FL|RR|RL)_calf_joint.*": 0.15,
-  }
-  cfg.rewards["pose"].params["std_walking"] = {
-    r".*(FR|FL|RR|RL)_hip_joint.*": 0.15,
-    r".*(FR|FL|RR|RL)_thigh_joint.*": 0.35,
-    r".*(FR|FL|RR|RL)_calf_joint.*": 0.5,
-  }
-  cfg.rewards["pose"].params["std_running"] = {
-    r".*(FR|FL|RR|RL)_hip_joint.*": 0.15,
-    r".*(FR|FL|RR|RL)_thigh_joint.*": 0.35,
-    r".*(FR|FL|RR|RL)_calf_joint.*": 0.5,
-  }
 
   cfg.rewards["foot_gait"].params["offset"] = [0.0, 0.5, 0.5, 0.0]
   cfg.rewards["body_orientation_l2"].params["asset_cfg"].body_names = ("base_link",)

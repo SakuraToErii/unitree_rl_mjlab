@@ -1,4 +1,4 @@
-"""Unitree G1-23DOF residual-effort velocity environment configurations."""
+"""Unitree G1-23DOF absolute-effort velocity environment configurations."""
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
@@ -16,14 +16,14 @@ from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 
 import src.tasks.effort.mdp as mdp
 from src.tasks.effort.config.g1_23dof.action_cfg import (
-  g1_23dof_residual_effort_action_cfg,
+  g1_23dof_effort_action_cfg,
 )
 from src.tasks.effort.config.g1_23dof.robot_cfg import get_g1_23dof_effort_robot_cfg
 from src.tasks.effort.velocity_env_cfg import enable_mha_history, make_effort_env_cfg
 
 
 def unitree_g1_23dof_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
-  """Create Unitree G1-23DOF rough terrain residual-effort configuration."""
+  """Create Unitree G1-23DOF rough terrain absolute-effort configuration."""
   cfg = make_effort_env_cfg()
 
   cfg.sim.mujoco.ccd_iterations = 500
@@ -83,7 +83,21 @@ def unitree_g1_23dof_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   if cfg.scene.terrain is not None and cfg.scene.terrain.terrain_generator is not None:
     cfg.scene.terrain.terrain_generator.curriculum = True
 
-  cfg.actions = {"joint_effort": g1_23dof_residual_effort_action_cfg()}
+  cfg.actions = {"joint_effort": g1_23dof_effort_action_cfg()}
+
+  cfg.rewards["joint_deviation_arms"].params["asset_cfg"].joint_names = (
+    ".*_shoulder_.*_joint",
+    ".*_elbow_joint",
+    ".*_wrist_.*",
+  )
+  cfg.rewards["joint_deviation_waists"].params["asset_cfg"].joint_names = (
+    "waist.*",
+  )
+  cfg.rewards["joint_deviation_legs"].params["asset_cfg"].joint_names = (
+    ".*_hip_roll_joint",
+    ".*_hip_yaw_joint",
+  )
+  cfg.rewards["base_height"].params["target_height"] = 0.79
 
   cfg.viewer.body_name = "torso_link"
 
@@ -93,50 +107,6 @@ def unitree_g1_23dof_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 
   cfg.events["foot_friction"].params["asset_cfg"].geom_names = geom_names
   cfg.events["base_com"].params["asset_cfg"].body_names = ("torso_link",)
-
-  # Rationale for std values:
-  # - Knees/hip_pitch get the loosest std to allow natural leg bending during stride.
-  # - Hip roll/yaw stay tighter to prevent excessive lateral sway and keep gait stable.
-  # - Ankle roll is very tight for balance; ankle pitch looser for foot clearance.
-  # - Waist roll/pitch stay tight to keep the torso upright and stable.
-  # - Shoulders/elbows get moderate freedom for natural arm swing during walking.
-  # - Wrists are loose (0.3) since they don't affect balance much.
-  # Running values are ~1.5-2x walking values to accommodate larger motion range.
-  cfg.rewards["pose"].params["std_standing"] = {".*": 0.05}
-  cfg.rewards["pose"].params["std_walking"] = {
-    # Lower body.
-    r".*hip_pitch.*": 0.5,
-    r".*hip_roll.*": 0.15,
-    r".*hip_yaw.*": 0.15,
-    r".*knee.*": 0.5,
-    r".*ankle_pitch.*": 0.15,
-    r".*ankle_roll.*": 0.1,
-    # Waist.
-    r".*waist_yaw.*": 0.15,
-    # Arms.
-    r".*shoulder_pitch.*": 0.15,
-    r".*shoulder_roll.*": 0.1,
-    r".*shoulder_yaw.*": 0.1,
-    r".*elbow.*": 0.1,
-    r".*wrist.*": 0.1,
-  }
-  cfg.rewards["pose"].params["std_running"] = {
-    # Lower body.
-    r".*hip_pitch.*": 0.5,
-    r".*hip_roll.*": 0.25,
-    r".*hip_yaw.*": 0.25,
-    r".*knee.*": 0.5,
-    r".*ankle_pitch.*": 0.25,
-    r".*ankle_roll.*": 0.1,
-    # Waist.
-    r".*waist_yaw.*": 0.25,
-    # Arms.
-    r".*shoulder_pitch.*": 0.25,
-    r".*shoulder_roll.*": 0.1,
-    r".*shoulder_yaw.*": 0.1,
-    r".*elbow.*": 0.1,
-    r".*wrist.*": 0.1,
-  }
 
   cfg.rewards["body_orientation_l2"].params["asset_cfg"].body_names = ("torso_link",)
   cfg.rewards["body_ang_vel"].params["asset_cfg"].body_names = ("torso_link",)

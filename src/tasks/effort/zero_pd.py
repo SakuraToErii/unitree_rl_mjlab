@@ -50,25 +50,22 @@ def with_zero_pd(cfg: EntityCfg) -> EntityCfg:
   )
 
 
-def residual_effort_action_cfg(
+def absolute_effort_action_cfg(
   actuators: Sequence[BuiltinPositionActuatorCfg],
-  *,
-  residual_frac: float = 0.4,
-  offset: dict[str, float] | float = 0.0,
 ) -> JointEffortActionCfg:
-  """Build ``tau = offset + action * (residual_frac * effort_limit)``."""
+  """Build ``tau = clip(action * effort_limit, ±effort_limit)``."""
   scale: dict[str, float] = {}
   clip: dict[str, tuple[float, float]] = {}
   for actuator in actuators:
     limit = actuator.effort_limit
     assert limit is not None
     for expr in actuator.target_names_expr:
-      scale[expr] = residual_frac * limit
-      clip[expr] = (-limit, limit)
+      scale[expr] = float(limit)
+      clip[expr] = (-float(limit), float(limit))
   return JointEffortActionCfg(
     entity_name="robot",
     actuator_names=(".*",),
     scale=scale,
-    offset=offset,
+    offset=0.0,
     clip=clip,
   )

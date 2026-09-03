@@ -296,19 +296,6 @@ def make_effort_env_cfg() -> ManagerBasedRlEnvCfg:
       weight=-1.0,
       params={"asset_cfg": SceneEntityCfg("robot", body_names=())},  # Set per-robot.
     ),
-    "pose": RewardTermCfg(
-      func=mdp.variable_posture,
-      weight=1.0,
-      params={
-        "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
-        "command_name": "twist",
-        "std_standing": {},  # Set per-robot.
-        "std_walking": {},  # Set per-robot.
-        "std_running": {},  # Set per-robot.
-        "walking_threshold": 0.1,
-        "running_threshold": 1.5,
-      },
-    ),
     "body_ang_vel": RewardTermCfg(
       func=mdp.body_angular_velocity_penalty,
       weight=-0.05,  # Override per-robot
@@ -322,7 +309,36 @@ def make_effort_env_cfg() -> ManagerBasedRlEnvCfg:
     "is_terminated": RewardTermCfg(func=mdp.is_terminated, weight=-200.0),
     "joint_acc_l2": RewardTermCfg(func=mdp.joint_acc_l2, weight=-2.5e-7),
     "joint_pos_limits": RewardTermCfg(func=mdp.joint_pos_limits, weight=-10.0),
-    "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-0.05),
+    "effort_action_rate_l2": RewardTermCfg(
+      func=mdp.effort_action_rate_l2,
+      weight=-0.05,
+      params={"action_term_name": "joint_effort"},
+    ),
+    "energy": RewardTermCfg(
+      func=mdp.energy,
+      weight=-2e-5,
+      params={"action_term_name": "joint_effort"},
+    ),
+    "joint_deviation_arms": RewardTermCfg(
+      func=mdp.joint_deviation_l1,
+      weight=-0.1,
+      params={"asset_cfg": SceneEntityCfg("robot", joint_names=())},
+    ),
+    "joint_deviation_waists": RewardTermCfg(
+      func=mdp.joint_deviation_l1,
+      weight=-1.0,
+      params={"asset_cfg": SceneEntityCfg("robot", joint_names=())},
+    ),
+    "joint_deviation_legs": RewardTermCfg(
+      func=mdp.joint_deviation_l1,
+      weight=-1.0,
+      params={"asset_cfg": SceneEntityCfg("robot", joint_names=())},
+    ),
+    "base_height": RewardTermCfg(
+      func=mdp.base_height_l2,
+      weight=-10.0,
+      params={"target_height": 0.0},
+    ),
     "foot_gait": RewardTermCfg(
       func=mdp.feet_gait,
       weight=0.5,
@@ -363,15 +379,6 @@ def make_effort_env_cfg() -> ManagerBasedRlEnvCfg:
         "sensor_name": "feet_ground_contact",
         "command_name": "twist",
         "command_threshold": 0.1,
-      },
-    ),
-    "stand_still": RewardTermCfg(
-      func=mdp.stand_still,
-      weight=-1.0,
-      params={
-        "command_name": "twist",
-        "command_threshold": 0.1,
-        "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
       },
     ),
   }
