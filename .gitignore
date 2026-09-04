@@ -41,3 +41,6 @@ doc/research/urdf_effort_vs_mujoco_force_limits.md
 # Graphify local cache and ignore list.
 graphify-out/
 .graphifyignore
+
+# Local Cursor rules.
+.cursor/
