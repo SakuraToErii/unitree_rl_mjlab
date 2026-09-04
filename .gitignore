@@ -37,3 +37,7 @@ doc/research/_scratch_real_floor_friction.md
 doc/research/tk3_friction_mjlab_vs_deploy_vs_real.md
 doc/research/training_timesteps_cheat_sheet.md
 doc/research/urdf_effort_vs_mujoco_force_limits.md
+
+# Graphify local cache and ignore list.
+graphify-out/
+.graphifyignore
