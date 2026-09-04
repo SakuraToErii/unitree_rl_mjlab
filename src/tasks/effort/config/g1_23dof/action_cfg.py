@@ -7,5 +7,5 @@ from src.tasks.effort.zero_pd import absolute_effort_action_cfg
 
 
 def g1_23dof_effort_action_cfg() -> JointEffortActionCfg:
-  """Create an absolute torque action scaled by each motor's effort limit."""
+  """Create ``tau = clip(action * fraction * effort_limit, ±effort_limit)``."""
   return absolute_effort_action_cfg(G1_23DOF_ARTICULATION.actuators)

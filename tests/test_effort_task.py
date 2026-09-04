@@ -8,6 +8,7 @@ from dataclasses import asdict
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import mujoco
 import torch
 from mjlab.actuator import IdealPdActuatorCfg
 from mjlab.entity import Entity
@@ -21,9 +22,16 @@ from tensordict import TensorDict
 
 import src.tasks  # noqa: F401
 import src.tasks.effort.mdp as mdp
+from src.assets.robots.unitree_g1.g1_constants import (
+  ARMATURE_4010,
+  ARMATURE_5020,
+  ARMATURE_7520_14,
+  ARMATURE_7520_22,
+)
 from src.tasks.effort.config.g1.action_cfg import (
   EFFORT_ACTION_CLIP,
   EFFORT_ACTION_LIMIT,
+  EFFORT_ACTION_SCALE,
   g1_effort_action_cfg,
 )
 from src.tasks.effort.config.g1.env_cfgs import (
@@ -36,6 +44,14 @@ from src.tasks.effort.config.g1.rl_cfg import (
   unitree_g1_ppo_mha_runner_cfg,
   unitree_g1_ppo_runner_cfg,
 )
+from src.tasks.effort.config.g1_23dof.rl_cfg import (
+  unitree_g1_23dof_ppo_mha_runner_cfg,
+  unitree_g1_23dof_ppo_runner_cfg,
+)
+from src.tasks.effort.config.go2.rl_cfg import (
+  unitree_go2_ppo_mha_runner_cfg,
+  unitree_go2_ppo_runner_cfg,
+)
 from src.tasks.effort.config.g1.robot_cfg import (
   EFFORT_STANDING_JOINT_POSITION,
   EFFORT_STANDING_ROOT_HEIGHT,
@@ -43,6 +59,7 @@ from src.tasks.effort.config.g1.robot_cfg import (
 )
 from src.tasks.effort.rl.models import ResidualMhaModel, ResidualMlpModel
 from src.tasks.effort.rl.runner import get_effort_metadata
+from src.tasks.effort.zero_pd import EFFORT_ACTION_SCALE_FRACTION
 
 G1_EFFORT_TASK_IDS = (
   "Unitree-G1-Effort-Rough",
@@ -122,12 +139,61 @@ class EffortTaskTest(unittest.TestCase):
     self.assertEqual(len(set(controlled_joints)), 29)
     self.assertEqual(set(controlled_joints), set(robot.joint_names))
 
-  def test_absolute_effort_action_is_full_y1_with_zero_offset(self) -> None:
+  def test_g1_effort_applies_unitree_mujoco_joint_defaults(self) -> None:
+    robot = Entity(get_g1_effort_robot_cfg())
+    model = robot.spec.compile()
+
+    for joint_name in robot.joint_names:
+      joint_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)
+      dof_id = int(model.jnt_dofadr[joint_id])
+      expected_frictionloss = (
+        0.1
+        if joint_name.endswith(("wrist_pitch_joint", "wrist_yaw_joint"))
+        else 0.2
+      )
+      if joint_name.endswith(("wrist_pitch_joint", "wrist_yaw_joint")):
+        expected_armature = ARMATURE_4010
+      elif joint_name.endswith(("ankle_pitch_joint", "ankle_roll_joint")) or (
+        joint_name in ("waist_pitch_joint", "waist_roll_joint")
+      ):
+        expected_armature = ARMATURE_5020 * 2
+      elif joint_name.endswith(("hip_pitch_joint", "hip_yaw_joint")) or (
+        joint_name == "waist_yaw_joint"
+      ):
+        expected_armature = ARMATURE_7520_14
+      elif joint_name.endswith(("hip_roll_joint", "knee_joint")):
+        expected_armature = ARMATURE_7520_22
+      else:
+        expected_armature = ARMATURE_5020
+      self.assertAlmostEqual(float(model.dof_damping[dof_id]), 0.05)
+      self.assertAlmostEqual(float(model.dof_armature[dof_id]), expected_armature)
+      self.assertAlmostEqual(
+        float(model.dof_frictionloss[dof_id]), expected_frictionloss
+      )
+
+    free_joint_id = mujoco.mj_name2id(
+      model, mujoco.mjtObj.mjOBJ_JOINT, "floating_base_joint"
+    )
+    free_dof_id = int(model.jnt_dofadr[free_joint_id])
+    self.assertEqual(
+      model.dof_damping[free_dof_id : free_dof_id + 6].tolist(),
+      [0.0] * 6,
+    )
+    self.assertEqual(
+      model.dof_armature[free_dof_id : free_dof_id + 6].tolist(),
+      [0.0] * 6,
+    )
+    self.assertEqual(
+      model.dof_frictionloss[free_dof_id : free_dof_id + 6].tolist(),
+      [0.0] * 6,
+    )
+
+  def test_absolute_effort_action_scales_by_fraction_and_clips_at_y1(self) -> None:
     robot = Entity(get_g1_effort_robot_cfg())
     joint_names = list(robot.joint_names)
     action_cfg = g1_effort_action_cfg()
     self.assertIsInstance(action_cfg, JointEffortActionCfg)
-    self.assertEqual(action_cfg.scale, EFFORT_ACTION_LIMIT)
+    self.assertEqual(action_cfg.scale, EFFORT_ACTION_SCALE)
     self.assertEqual(action_cfg.offset, 0.0)
     self.assertEqual(action_cfg.clip, EFFORT_ACTION_CLIP)
 
@@ -141,13 +207,7 @@ class EffortTaskTest(unittest.TestCase):
     env.scene = {"robot": robot}
     action = action_cfg.build(env)
     self.assertEqual(action.target_names, joint_names)
-
-    zero_action = torch.zeros(2, 29)
-    action.process_actions(zero_action)
-    torch.testing.assert_close(action._processed_actions, torch.zeros(2, 29))
-
-    action.process_actions(torch.full((2, 29), 100.0))
-    expected_upper = torch.tensor(
+    expected_y1 = torch.tensor(
       [
         next(
           limit
@@ -157,7 +217,21 @@ class EffortTaskTest(unittest.TestCase):
         for name in joint_names
       ]
     )
-    torch.testing.assert_close(action._processed_actions[0], expected_upper)
+
+    action.process_actions(torch.zeros(2, 29))
+    torch.testing.assert_close(action._processed_actions, torch.zeros(2, 29))
+
+    action.process_actions(torch.ones(2, 29))
+    torch.testing.assert_close(
+      action._processed_actions[0], EFFORT_ACTION_SCALE_FRACTION * expected_y1
+    )
+
+    saturate = 1.0 / EFFORT_ACTION_SCALE_FRACTION
+    action.process_actions(torch.full((2, 29), saturate))
+    torch.testing.assert_close(action._processed_actions[0], expected_y1)
+
+    action.process_actions(torch.full((2, 29), 100.0))
+    torch.testing.assert_close(action._processed_actions[0], expected_y1)
 
   def test_effort_export_metadata_uses_torque_action_contract(self) -> None:
     env = ManagerBasedRlEnv(load_env_cfg("Unitree-G1-Effort-Flat"), device="cpu")
@@ -178,7 +252,7 @@ class EffortTaskTest(unittest.TestCase):
         self.assertAlmostEqual(actual, expected, places=5)
       expected_scale = [
         next(
-          limit
+          EFFORT_ACTION_SCALE_FRACTION * limit
           for joint_expr, limit in EFFORT_ACTION_LIMIT.items()
           if re.fullmatch(joint_expr, name)
         )
@@ -248,7 +322,8 @@ class EffortTaskTest(unittest.TestCase):
       cfg.actions["joint_effort"].offset,
       0.0,
     )
-    self.assertEqual(cfg.actions["joint_effort"].scale, EFFORT_ACTION_LIMIT)
+    self.assertEqual(cfg.actions["joint_effort"].scale, EFFORT_ACTION_SCALE)
+    self.assertIn("nan_detection", cfg.terminations)
     self.assertEqual(
       cfg.rewards["base_height"].params["target_height"],
       EFFORT_STANDING_ROOT_HEIGHT,
@@ -307,7 +382,10 @@ class EffortTaskTest(unittest.TestCase):
     action_manager.prev_action = torch.zeros_like(current_raw)
     action.process_actions(current_raw)
     torch.testing.assert_close(
-      mdp.effort_action_rate_l2(env), torch.ones(2), atol=1.0e-6, rtol=0.0
+      mdp.effort_action_rate_l2(env),
+      torch.full((2,), EFFORT_ACTION_SCALE_FRACTION**2),
+      atol=1.0e-6,
+      rtol=0.0,
     )
 
     ankle_index = action.target_names.index("left_ankle_pitch_joint")
@@ -350,8 +428,10 @@ class EffortTaskTest(unittest.TestCase):
       mdp.energy(action_env), torch.zeros(2)
     )
     asset.data.joint_vel[:, hip_pitch_index] = 1.0
+    hip_peak = EFFORT_ACTION_LIMIT[r".*_hip_pitch_joint"]
     torch.testing.assert_close(
-      mdp.energy(action_env), torch.full((2,), 71.0)
+      mdp.energy(action_env),
+      torch.full((2,), EFFORT_ACTION_SCALE_FRACTION * hip_peak),
     )
 
     joint_cfg = mdp.SceneEntityCfg("robot", joint_ids=[0, 1])
@@ -389,6 +469,10 @@ class EffortTaskTest(unittest.TestCase):
       self.assertEqual(
         base_cfg.observations["critic"].terms, mha_cfg.observations["critic"].terms
       )
+      self.assertEqual(base_cfg.observations["actor"].history_length, 5)
+      self.assertTrue(base_cfg.observations["actor"].flatten_history_dim)
+      self.assertEqual(base_cfg.observations["critic"].history_length, 5)
+      self.assertTrue(base_cfg.observations["critic"].flatten_history_dim)
       self.assertEqual(mha_cfg.observations["actor"].history_length, 5)
       self.assertFalse(mha_cfg.observations["actor"].flatten_history_dim)
       self.assertEqual(mha_cfg.observations["critic"].history_length, 5)
@@ -398,27 +482,51 @@ class EffortTaskTest(unittest.TestCase):
     for task_id in ALL_EFFORT_TASK_IDS:
       cfg = load_env_cfg(task_id)
       self.assertEqual(list(cfg.actions), ["joint_effort"])
-      self.assertIsInstance(cfg.actions["joint_effort"], JointEffortActionCfg)
+      action_cfg = cfg.actions["joint_effort"]
+      self.assertIsInstance(action_cfg, JointEffortActionCfg)
+      self.assertEqual(action_cfg.offset, 0.0)
+      self.assertIsInstance(action_cfg.scale, dict)
+      self.assertIsInstance(action_cfg.clip, dict)
+      self.assertEqual(set(action_cfg.scale), set(action_cfg.clip))
+      for expr, scale in action_cfg.scale.items():
+        lo, hi = action_cfg.clip[expr]
+        self.assertEqual(lo, -hi)
+        self.assertAlmostEqual(scale, EFFORT_ACTION_SCALE_FRACTION * hi)
+      self.assertIn("nan_detection", cfg.terminations)
 
   def test_ppo_configs_use_effort_initialization_and_mha_model(self) -> None:
     ppo_cfg = unitree_g1_ppo_runner_cfg()
     mha_cfg = unitree_g1_ppo_mha_runner_cfg()
+    expected_distribution = {
+      "class_name": "GaussianDistribution",
+      "init_std": 1,
+      "std_type": "scalar",
+      "std_range": (1e-3, 2.0),
+    }
 
     self.assertTrue(ppo_cfg.actor.class_name.endswith(":ResidualMlpModel"))
     self.assertTrue(mha_cfg.actor.class_name.endswith(":ResidualMhaModel"))
     self.assertIs(resolve_callable(ppo_cfg.actor.class_name), ResidualMlpModel)
     self.assertIs(resolve_callable(mha_cfg.actor.class_name), ResidualMhaModel)
-    self.assertEqual(
-      ppo_cfg.actor.distribution_cfg,
-      {
-        "class_name": "GaussianDistribution",
-        "init_std": 0.3,
-        "std_type": "log",
-      },
-    )
-    self.assertEqual(mha_cfg.actor.distribution_cfg, ppo_cfg.actor.distribution_cfg)
+    self.assertEqual(ppo_cfg.actor.distribution_cfg, expected_distribution)
+    self.assertEqual(mha_cfg.actor.distribution_cfg, expected_distribution)
+    self.assertIsNone(ppo_cfg.clip_actions)
+    self.assertIsNone(mha_cfg.clip_actions)
+    self.assertEqual(ppo_cfg.algorithm.entropy_coef, 0.001)
+    self.assertEqual(mha_cfg.algorithm.entropy_coef, 0.001)
     self.assertEqual(ppo_cfg.max_iterations, 50_000)
     self.assertEqual(mha_cfg.max_iterations, 10_000)
+
+    other_runners = (
+      unitree_g1_23dof_ppo_runner_cfg(),
+      unitree_g1_23dof_ppo_mha_runner_cfg(),
+      unitree_go2_ppo_runner_cfg(),
+      unitree_go2_ppo_mha_runner_cfg(),
+    )
+    for other_cfg in other_runners:
+      self.assertEqual(other_cfg.actor.distribution_cfg, expected_distribution)
+      self.assertIsNone(other_cfg.clip_actions)
+      self.assertEqual(other_cfg.algorithm.entropy_coef, 0.001)
 
     serialized_mha_cfg = asdict(mha_cfg)
     self.assertEqual(serialized_mha_cfg["actor"]["history_length"], 5)
@@ -429,8 +537,8 @@ class EffortTaskTest(unittest.TestCase):
     output_dim = 29
     distribution_cfg = {
       "class_name": "GaussianDistribution",
-      "init_std": 0.1,
-      "std_type": "log",
+      "init_std": 1,
+      "std_type": "scalar",
     }
 
     mlp_obs = TensorDict({"actor": torch.zeros(batch_size, 64)}, batch_size=[batch_size])

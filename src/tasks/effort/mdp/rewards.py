@@ -116,25 +116,23 @@ def track_linear_velocity(
   lin_vel_error = xy_error + (2 * z_error)
   return torch.exp(-lin_vel_error / std**2)
 
-
+# modified
 def track_angular_velocity(
   env: ManagerBasedRlEnv,
   std: float,
   command_name: str,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
-  """Reward heading error for heading-controlled envs, angular velocity for others.
+  """Reward tracking of commanded yaw rate.
 
-  The commanded xy angular velocities are assumed to be zero.
+  Roll/pitch rates are left to ``body_ang_vel`` and ``body_orientation_l2``.
   """
   asset: Entity = env.scene[asset_cfg.name]
   command = env.command_manager.get_command(command_name)
   assert command is not None, f"Command '{command_name}' not found."
   actual = asset.data.root_link_ang_vel_b
   z_error = torch.square(command[:, 2] - actual[:, 2])
-  xy_error = torch.sum(torch.square(actual[:, :2]), dim=1)
-  ang_vel_error = z_error + (0.05 * xy_error)
-  return torch.exp(-ang_vel_error / std**2)
+  return torch.exp(-z_error / std**2)
 
 
 def body_orientation_l2(

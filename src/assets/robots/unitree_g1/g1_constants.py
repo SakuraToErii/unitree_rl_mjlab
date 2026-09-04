@@ -122,6 +122,13 @@ DAMPING_7520_14 = 2.0 * DAMPING_RATIO * ARMATURE_7520_14 * NATURAL_FREQ
 DAMPING_7520_22 = 2.0 * DAMPING_RATIO * ARMATURE_7520_22 * NATURAL_FREQ
 DAMPING_4010 = 2.0 * DAMPING_RATIO * ARMATURE_4010 * NATURAL_FREQ
 
+# Joint-level physical defaults from Unitree's official G1 MuJoCo model.
+# Passive damping and friction are taken from that model. Armature remains the
+# reflected motor inertia used by the G1 actuator model and PD gain derivation.
+G1_PASSIVE_JOINT_DAMPING = 0.05
+G1_JOINT_FRICTIONLOSS = 0.2
+G1_WRIST_JOINT_FRICTIONLOSS = 0.1
+
 G1_ACTUATOR_5020 = BuiltinPositionActuatorCfg(
   target_names_expr=(
     ".*_elbow_joint",
@@ -134,7 +141,8 @@ G1_ACTUATOR_5020 = BuiltinPositionActuatorCfg(
   damping=DAMPING_5020,
   effort_limit=ACTUATOR_5020.effort_limit,
   armature=ACTUATOR_5020.reflected_inertia,
-  frictionloss=0.0,
+  frictionloss=G1_JOINT_FRICTIONLOSS,
+  viscous_damping=G1_PASSIVE_JOINT_DAMPING,
 )
 G1_ACTUATOR_7520_14 = BuiltinPositionActuatorCfg(
   target_names_expr=(".*_hip_pitch_joint", ".*_hip_yaw_joint", "waist_yaw_joint"),
@@ -142,7 +150,8 @@ G1_ACTUATOR_7520_14 = BuiltinPositionActuatorCfg(
   damping=DAMPING_7520_14,
   effort_limit=ACTUATOR_7520_14.effort_limit,
   armature=ACTUATOR_7520_14.reflected_inertia,
-  frictionloss=0.0,
+  frictionloss=G1_JOINT_FRICTIONLOSS,
+  viscous_damping=G1_PASSIVE_JOINT_DAMPING,
 )
 G1_ACTUATOR_7520_22 = BuiltinPositionActuatorCfg(
   target_names_expr=(".*_hip_roll_joint", ".*_knee_joint"),
@@ -150,7 +159,8 @@ G1_ACTUATOR_7520_22 = BuiltinPositionActuatorCfg(
   damping=DAMPING_7520_22,
   effort_limit=ACTUATOR_7520_22.effort_limit,
   armature=ACTUATOR_7520_22.reflected_inertia,
-  frictionloss=0.0,
+  frictionloss=G1_JOINT_FRICTIONLOSS,
+  viscous_damping=G1_PASSIVE_JOINT_DAMPING,
 )
 G1_ACTUATOR_4010 = BuiltinPositionActuatorCfg(
   target_names_expr=(".*_wrist_pitch_joint", ".*_wrist_yaw_joint"),
@@ -158,7 +168,8 @@ G1_ACTUATOR_4010 = BuiltinPositionActuatorCfg(
   damping=DAMPING_4010,
   effort_limit=ACTUATOR_4010.effort_limit,
   armature=ACTUATOR_4010.reflected_inertia,
-  frictionloss=0.0,
+  frictionloss=G1_WRIST_JOINT_FRICTIONLOSS,
+  viscous_damping=G1_PASSIVE_JOINT_DAMPING,
 )
 
 # Waist pitch/roll and ankles are 4-bar linkages with 2 5020 actuators.
@@ -172,7 +183,8 @@ G1_ACTUATOR_WAIST = BuiltinPositionActuatorCfg(
   damping=DAMPING_5020 * 2,
   effort_limit=ACTUATOR_5020.effort_limit * 2,
   armature=ACTUATOR_5020.reflected_inertia * 2,
-  frictionloss=0.0,
+  frictionloss=G1_JOINT_FRICTIONLOSS,
+  viscous_damping=G1_PASSIVE_JOINT_DAMPING,
 )
 G1_ACTUATOR_ANKLE = BuiltinPositionActuatorCfg(
   target_names_expr=(".*_ankle_pitch_joint", ".*_ankle_roll_joint"),
@@ -180,7 +192,8 @@ G1_ACTUATOR_ANKLE = BuiltinPositionActuatorCfg(
   damping=DAMPING_5020 * 2,
   effort_limit=ACTUATOR_5020.effort_limit * 2,
   armature=ACTUATOR_5020.reflected_inertia * 2,
-  frictionloss=0.0,
+  frictionloss=G1_JOINT_FRICTIONLOSS,
+  viscous_damping=G1_PASSIVE_JOINT_DAMPING,
 )
 
 ##

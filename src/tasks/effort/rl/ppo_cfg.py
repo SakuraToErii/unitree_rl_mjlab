@@ -28,12 +28,22 @@ class ResidualMhaModelCfg(ResidualMlpModelCfg):
   learnable_pos_embedding: bool = True
 
 
+# Plant saturates at |action| = 4 (0.25×Y1). Cap σ so entropy cannot
+# inflate unused dimensions past that range. Do not clip actions.
+_EFFORT_DISTRIBUTION_CFG = {
+  "class_name": "GaussianDistribution",
+  "init_std": 1,
+  "std_type": "scalar",
+  "std_range": (1e-3, 2.0),
+}
+
+
 def _ppo_algorithm_cfg() -> RslRlPpoAlgorithmCfg:
   return RslRlPpoAlgorithmCfg(
     value_loss_coef=1.0,
     use_clipped_value_loss=True,
     clip_param=0.2,
-    entropy_coef=0.01,
+    entropy_coef=0.001,
     num_learning_epochs=5,
     num_mini_batches=4,
     learning_rate=1.0e-3,
@@ -57,11 +67,7 @@ def make_effort_ppo_runner_cfg(
       hidden_dims=(512, 256, 128),
       activation="elu",
       obs_normalization=False,
-      distribution_cfg={
-        "class_name": "GaussianDistribution",
-        "init_std": 0.3,
-        "std_type": "log",
-      },
+      distribution_cfg=dict(_EFFORT_DISTRIBUTION_CFG),
       output_gain=0.01,
       history_length=5,
       num_heads=4,
@@ -74,11 +80,7 @@ def make_effort_ppo_runner_cfg(
       hidden_dims=(512, 256, 128),
       activation="elu",
       obs_normalization=False,
-      distribution_cfg={
-        "class_name": "GaussianDistribution",
-        "init_std": 0.3,
-        "std_type": "log",
-      },
+      distribution_cfg=dict(_EFFORT_DISTRIBUTION_CFG),
       output_gain=0.01,
     )
     iterations = 50_000 if max_iterations is None else max_iterations

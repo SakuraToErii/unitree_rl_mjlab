@@ -2,7 +2,11 @@
 
 from mjlab.envs.mdp.actions import JointEffortActionCfg
 
-# Same-direction peak torque (Y1) for each Unitree motor family.
+from src.tasks.effort.zero_pd import EFFORT_ACTION_SCALE_FRACTION
+
+# Same-direction peak torque (Y1) from Unitree's motor T-N bench:
+# N7520-14.3 → 71, N7520-22.5 → 111, N5020-16 → 24.8, W4010-25 → 4.8.
+# These are lookup values, not derived from URDF effort_limit (Y2-side).
 EFFORT_ACTION_LIMIT: dict[str, float] = {
   r".*_hip_pitch_joint": 71.0,
   r".*_hip_yaw_joint": 71.0,
@@ -23,12 +27,18 @@ EFFORT_ACTION_CLIP: dict[str, tuple[float, float]] = {
   joint_expr: (-limit, limit) for joint_expr, limit in EFFORT_ACTION_LIMIT.items()
 }
 
+EFFORT_ACTION_SCALE: dict[str, float] = {
+  joint_expr: EFFORT_ACTION_SCALE_FRACTION * limit
+  for joint_expr, limit in EFFORT_ACTION_LIMIT.items()
+}
+
+
 def g1_effort_action_cfg() -> JointEffortActionCfg:
-  """Create ``tau = clip(action * Y1, ±Y1)`` for all 29 joints."""
+  """Create ``tau = clip(action * fraction * Y1, ±Y1)`` for all 29 joints."""
   return JointEffortActionCfg(
     entity_name="robot",
     actuator_names=(".*",),
-    scale=EFFORT_ACTION_LIMIT,
+    scale=EFFORT_ACTION_SCALE,
     offset=0.0,
     clip=EFFORT_ACTION_CLIP,
   )

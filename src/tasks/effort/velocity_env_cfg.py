@@ -148,13 +148,13 @@ def make_effort_env_cfg() -> ManagerBasedRlEnvCfg:
       terms=actor_terms,
       concatenate_terms=True,
       enable_corruption=True,
-      history_length=1,
+      history_length=5,
     ),
     "critic": ObservationGroupCfg(
       terms=critic_terms,
       concatenate_terms=True,
       enable_corruption=False,
-      history_length=1,
+      history_length=5,
     ),
   }
 
@@ -283,12 +283,12 @@ def make_effort_env_cfg() -> ManagerBasedRlEnvCfg:
   rewards = {
     "track_linear_velocity": RewardTermCfg(
       func=mdp.track_linear_velocity,
-      weight=1.0,
+      weight=10.0,
       params={"command_name": "twist", "std": math.sqrt(0.25)},
     ),
     "track_angular_velocity": RewardTermCfg(
       func=mdp.track_angular_velocity,
-      weight=1.0,
+      weight=5.0,
       params={"command_name": "twist", "std": math.sqrt(0.5)},
     ),
     "body_orientation_l2": RewardTermCfg(
@@ -393,6 +393,7 @@ def make_effort_env_cfg() -> ManagerBasedRlEnvCfg:
       func=mdp.bad_orientation,
       params={"limit_angle": math.radians(70.0)},
     ),
+    "nan_detection": TerminationTermCfg(func=mdp.nan_detection),
   }
 
   ##
