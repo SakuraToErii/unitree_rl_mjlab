@@ -320,29 +320,53 @@ def make_effort_env_cfg() -> ManagerBasedRlEnvCfg:
       weight=-2e-5,
       params={"action_term_name": "joint_effort"},
     ),
-    "joint_deviation_arms": RewardTermCfg(
-      func=mdp.joint_deviation_l1,
-      weight=-0.1,
-      params={"asset_cfg": SceneEntityCfg("robot", joint_names=())},
+    # Isaac Lab L1 pose priors. Disabled; mjlab `pose` is used instead.
+    # "joint_deviation_arms": RewardTermCfg(
+    #   func=mdp.joint_deviation_l1,
+    #   weight=-0.1,
+    #   params={"asset_cfg": SceneEntityCfg("robot", joint_names=())},
+    # ),
+    # "joint_deviation_waists": RewardTermCfg(
+    #   func=mdp.joint_deviation_l1,
+    #   weight=-1.0,
+    #   params={"asset_cfg": SceneEntityCfg("robot", joint_names=())},
+    # ),
+    # "joint_deviation_legs": RewardTermCfg(
+    #   func=mdp.joint_deviation_l1,
+    #   weight=-1.0,
+    #   params={"asset_cfg": SceneEntityCfg("robot", joint_names=())},
+    # ),
+    "pose": RewardTermCfg(
+      func=mdp.variable_posture,
+      weight=1.0,
+      params={
+        "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
+        "command_name": "twist",
+        "std_standing": {},  # Set per-robot.
+        "std_walking": {},  # Set per-robot.
+        "std_running": {},  # Set per-robot.
+        "walking_threshold": 0.1,
+        "running_threshold": 1.5,
+      },
     ),
-    "joint_deviation_waists": RewardTermCfg(
-      func=mdp.joint_deviation_l1,
+    "stand_still": RewardTermCfg(
+      func=mdp.stand_still,
       weight=-1.0,
-      params={"asset_cfg": SceneEntityCfg("robot", joint_names=())},
+      params={
+        "command_name": "twist",
+        "command_threshold": 0.1,
+        "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
+      },
     ),
-    "joint_deviation_legs": RewardTermCfg(
-      func=mdp.joint_deviation_l1,
-      weight=-1.0,
-      params={"asset_cfg": SceneEntityCfg("robot", joint_names=())},
-    ),
-    "base_height": RewardTermCfg(
-      func=mdp.base_height_l2,
-      weight=-10.0,
-      params={"target_height": 0.0},
-    ),
+    # Isaac Lab root-height L2. Disabled; standing pose + stand_still cover it.
+    # "base_height": RewardTermCfg(
+    #   func=mdp.base_height_l2,
+    #   weight=-10.0,
+    #   params={"target_height": 0.0},
+    # ),
     "foot_gait": RewardTermCfg(
       func=mdp.feet_gait,
-      weight=0.5,
+      weight=5.0,            # 保持，相位钟是主约束
       params={
         "period": 0.6,
         "offset": [0.0, 0.5],
@@ -350,6 +374,16 @@ def make_effort_env_cfg() -> ManagerBasedRlEnvCfg:
         "command_threshold": 0.1,
         "command_name": "twist",
         "sensor_name": "feet_ground_contact",
+      }
+    ),
+    "feet_air_time": RewardTermCfg(
+      func=mdp.feet_air_time,
+      weight=3.0,            # 从 1.0 提上来，让它有存在感
+      params={
+        "sensor_name": "feet_ground_contact",
+        "threshold": 0.30,   # 不用改，这个值其实是歪打正着
+        "command_name": "twist",
+        "command_threshold": 0.1,
       }
     ),
     "foot_clearance": RewardTermCfg(

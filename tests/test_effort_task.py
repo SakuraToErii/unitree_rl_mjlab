@@ -295,68 +295,67 @@ class EffortTaskTest(unittest.TestCase):
   def test_g1_effort_rewards_use_walkable_pose_split(self) -> None:
     cfg = load_env_cfg("Unitree-G1-Effort-Flat")
 
-    self.assertNotIn("pose", cfg.rewards)
-    self.assertNotIn("stand_still", cfg.rewards)
+    self.assertIs(cfg.rewards["pose"].func, mdp.variable_posture)
+    self.assertIs(cfg.rewards["stand_still"].func, mdp.stand_still)
+    self.assertEqual(mdp.variable_posture.__module__, "src.tasks.effort.mdp.rewards")
+    self.assertEqual(mdp.stand_still.__module__, "src.tasks.effort.mdp.rewards")
+    self.assertEqual(cfg.rewards["pose"].weight, 1.0)
+    self.assertEqual(cfg.rewards["pose"].params["std_standing"], {".*": 0.05})
+    self.assertEqual(cfg.rewards["pose"].params["std_walking"][r".*hip_pitch.*"], 0.5)
+    self.assertEqual(cfg.rewards["pose"].params["std_walking"][r".*knee.*"], 0.5)
+    self.assertEqual(cfg.rewards["pose"].params["std_running"][r".*hip_roll.*"], 0.25)
+    self.assertEqual(cfg.rewards["pose"].params["walking_threshold"], 0.1)
+    self.assertEqual(cfg.rewards["pose"].params["running_threshold"], 1.5)
+    self.assertEqual(cfg.rewards["stand_still"].weight, -1.0)
+    self.assertEqual(cfg.rewards["stand_still"].params["command_threshold"], 0.1)
     self.assertNotIn("action_rate_l2", cfg.rewards)
+    self.assertNotIn("joint_deviation_arms", cfg.rewards)
+    self.assertNotIn("joint_deviation_waists", cfg.rewards)
+    self.assertNotIn("joint_deviation_legs", cfg.rewards)
+    self.assertNotIn("base_height", cfg.rewards)
     self.assertIn("effort_action_rate_l2", cfg.rewards)
-    self.assertEqual(
-      cfg.rewards["joint_deviation_arms"].params["asset_cfg"].joint_names,
-      (".*_shoulder_.*_joint", ".*_elbow_joint", ".*_wrist_.*"),
-    )
-    self.assertEqual(
-      cfg.rewards["joint_deviation_waists"].params["asset_cfg"].joint_names,
-      ("waist.*",),
-    )
-    self.assertEqual(
-      cfg.rewards["joint_deviation_legs"].params["asset_cfg"].joint_names,
-      (".*_hip_roll_joint", ".*_hip_yaw_joint"),
-    )
-    for term_name in (
-      "joint_deviation_arms",
-      "joint_deviation_waists",
-      "joint_deviation_legs",
-    ):
-      joint_names = cfg.rewards[term_name].params["asset_cfg"].joint_names
-      self.assertFalse(any("hip_pitch" in name or "knee" in name for name in joint_names))
     self.assertEqual(
       cfg.actions["joint_effort"].offset,
       0.0,
     )
     self.assertEqual(cfg.actions["joint_effort"].scale, EFFORT_ACTION_SCALE)
     self.assertIn("nan_detection", cfg.terminations)
+    self.assertEqual(cfg.rewards["foot_gait"].weight, 5.0)
+    self.assertEqual(cfg.rewards["foot_gait"].params["period"], 0.6)
+    self.assertEqual(cfg.rewards["feet_air_time"].weight, 3.0)
+    self.assertEqual(cfg.rewards["feet_air_time"].params["threshold"], 0.30)
     self.assertEqual(
-      cfg.rewards["base_height"].params["target_height"],
-      EFFORT_STANDING_ROOT_HEIGHT,
+      cfg.rewards["feet_air_time"].params["sensor_name"],
+      "feet_ground_contact",
     )
+    self.assertEqual(cfg.rewards["feet_air_time"].params["command_name"], "twist")
 
   def test_other_effort_variants_configure_new_rewards(self) -> None:
     g1_23dof_cfg = load_env_cfg("Unitree-G1-23Dof-Effort-Flat")
     go2_cfg = load_env_cfg("Unitree-Go2-Effort-Flat")
 
     for cfg in (g1_23dof_cfg, go2_cfg):
-      self.assertNotIn("pose", cfg.rewards)
-      self.assertNotIn("stand_still", cfg.rewards)
+      self.assertIs(cfg.rewards["pose"].func, mdp.variable_posture)
+      self.assertIs(cfg.rewards["stand_still"].func, mdp.stand_still)
+      self.assertEqual(cfg.rewards["pose"].weight, 1.0)
+      self.assertNotIn("joint_deviation_arms", cfg.rewards)
+      self.assertNotIn("joint_deviation_waists", cfg.rewards)
+      self.assertNotIn("joint_deviation_legs", cfg.rewards)
+      self.assertEqual(cfg.rewards["stand_still"].weight, -1.0)
+      self.assertNotIn("base_height", cfg.rewards)
       self.assertNotIn("action_rate_l2", cfg.rewards)
       self.assertIn("effort_action_rate_l2", cfg.rewards)
 
     self.assertEqual(
-      g1_23dof_cfg.rewards["joint_deviation_legs"].params["asset_cfg"].joint_names,
-      (".*_hip_roll_joint", ".*_hip_yaw_joint"),
-    )
-    self.assertEqual(
-      g1_23dof_cfg.rewards["base_height"].params["target_height"],
-      0.79,
+      g1_23dof_cfg.rewards["pose"].params["std_walking"][r".*waist_yaw.*"],
+      0.15,
     )
 
-    self.assertEqual(go2_cfg.rewards["joint_deviation_arms"].weight, 0.0)
-    self.assertEqual(go2_cfg.rewards["joint_deviation_waists"].weight, 0.0)
     self.assertEqual(
-      go2_cfg.rewards["joint_deviation_legs"].params["asset_cfg"].joint_names,
-      (".*_hip_joint",),
-    )
-    self.assertEqual(
-      go2_cfg.rewards["base_height"].params["target_height"],
-      0.32,
+      go2_cfg.rewards["pose"].params["std_walking"][
+        r".*(FR|FL|RR|RL)_calf_joint.*"
+      ],
+      0.5,
     )
     self.assertEqual(
       go2_cfg.rewards["foot_gait"].params["offset"],

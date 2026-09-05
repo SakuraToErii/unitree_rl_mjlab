@@ -8,6 +8,7 @@ from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import BuiltinSensor, ContactSensor, TerrainHeightSensor
 from mjlab.utils.lab_api.math import quat_apply_inverse
+from mjlab.utils.lab_api.string import resolve_matching_names_values
 
 if TYPE_CHECKING:
   from mjlab.envs import ManagerBasedRlEnv
@@ -224,6 +225,7 @@ def feet_air_time(
   mode_time = torch.min(torch.where(single_stance.unsqueeze(-1), in_mode_time, 0.0), dim=1)[0]
   error = torch.abs(mode_time - threshold)
   reward = torch.clamp(threshold - error, min=0.0)
+  reward = reward / threshold # 防止权重和量级脱钩
   if command_name is not None:
     command = env.command_manager.get_command(command_name)
     if command is not None:
@@ -402,4 +404,111 @@ def soft_landing(
       active = (total_command > command_threshold).float()
       cost = cost * active
   return cost
+
+
+class variable_posture:
+  """Penalize deviation from default pose with speed-dependent tolerance.
+
+  Uses per-joint standard deviations to control how much each joint can deviate
+  from default pose. Smaller std = stricter (less deviation allowed), larger
+  std = more forgiving. The reward is: exp(-mean(error² / std²))
+
+  Three speed regimes (based on linear + angular command velocity):
+    - std_standing (speed < walking_threshold): Tight tolerance for holding pose.
+    - std_walking (walking_threshold <= speed < running_threshold): Moderate.
+    - std_running (speed >= running_threshold): Loose tolerance for large motion.
+
+  Tune std values per joint based on how much motion that joint needs at each
+  speed. Map joint name patterns to std values, e.g. {".*knee.*": 0.35}.
+  """
+
+  def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
+    asset: Entity = env.scene[cfg.params["asset_cfg"].name]
+    default_joint_pos = asset.data.default_joint_pos
+    assert default_joint_pos is not None
+    self.default_joint_pos = default_joint_pos
+
+    _, joint_names = asset.find_joints(cfg.params["asset_cfg"].joint_names)
+
+    _, _, std_standing = resolve_matching_names_values(
+      data=cfg.params["std_standing"],
+      list_of_strings=joint_names,
+    )
+    self.std_standing = torch.tensor(
+      std_standing, device=env.device, dtype=torch.float32
+    )
+
+    _, _, std_walking = resolve_matching_names_values(
+      data=cfg.params["std_walking"],
+      list_of_strings=joint_names,
+    )
+    self.std_walking = torch.tensor(std_walking, device=env.device, dtype=torch.float32)
+
+    _, _, std_running = resolve_matching_names_values(
+      data=cfg.params["std_running"],
+      list_of_strings=joint_names,
+    )
+    self.std_running = torch.tensor(std_running, device=env.device, dtype=torch.float32)
+
+  def __call__(
+    self,
+    env: ManagerBasedRlEnv,
+    std_standing,
+    std_walking,
+    std_running,
+    asset_cfg: SceneEntityCfg,
+    command_name: str,
+    walking_threshold: float = 0.5,
+    running_threshold: float = 1.5,
+  ) -> torch.Tensor:
+    del std_standing, std_walking, std_running  # Unused.
+
+    asset: Entity = env.scene[asset_cfg.name]
+    command = env.command_manager.get_command(command_name)
+    assert command is not None
+
+    linear_speed = torch.norm(command[:, :2], dim=1)
+    angular_speed = torch.abs(command[:, 2])
+    total_speed = linear_speed + angular_speed
+
+    standing_mask = (total_speed < walking_threshold).float()
+    walking_mask = (
+      (total_speed >= walking_threshold) & (total_speed < running_threshold)
+    ).float()
+    running_mask = (total_speed >= running_threshold).float()
+
+    std = (
+      self.std_standing * standing_mask.unsqueeze(1)
+      + self.std_walking * walking_mask.unsqueeze(1)
+      + self.std_running * running_mask.unsqueeze(1)
+    )
+
+    current_joint_pos = asset.data.joint_pos[:, asset_cfg.joint_ids]
+    desired_joint_pos = self.default_joint_pos[:, asset_cfg.joint_ids]
+    error_squared = torch.square(current_joint_pos - desired_joint_pos)
+
+    return torch.exp(-torch.mean(error_squared / (std**2), dim=1))
+
+
+def stand_still(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  command_threshold: float = 0.1,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  asset: Entity = env.scene[asset_cfg.name]
+  diff_angle = (
+    asset.data.joint_pos[:, asset_cfg.joint_ids]
+    - asset.data.default_joint_pos[:, asset_cfg.joint_ids]
+  )
+  reward = torch.sum(torch.square(diff_angle), dim=1)
+  if command_name is not None:
+    command = env.command_manager.get_command(command_name)
+    if command is not None:
+      linear_norm = torch.norm(command[:, :2], dim=1)
+      angular_norm = torch.abs(command[:, 2])
+      total_command = linear_norm + angular_norm
+      scale = (total_command <= command_threshold).float()
+      reward *= scale
+  return reward
 

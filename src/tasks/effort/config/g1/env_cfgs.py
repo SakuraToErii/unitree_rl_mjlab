@@ -17,7 +17,6 @@ from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 import src.tasks.effort.mdp as mdp
 from src.tasks.effort.config.g1.action_cfg import g1_effort_action_cfg
 from src.tasks.effort.config.g1.robot_cfg import (
-  EFFORT_STANDING_ROOT_HEIGHT,
   get_g1_effort_robot_cfg,
 )
 from src.tasks.effort.velocity_env_cfg import enable_mha_history, make_effort_env_cfg
@@ -86,19 +85,54 @@ def unitree_g1_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 
   cfg.actions = {"joint_effort": g1_effort_action_cfg()}
 
-  cfg.rewards["joint_deviation_arms"].params["asset_cfg"].joint_names = (
-    ".*_shoulder_.*_joint",
-    ".*_elbow_joint",
-    ".*_wrist_.*",
-  )
-  cfg.rewards["joint_deviation_waists"].params["asset_cfg"].joint_names = (
-    "waist.*",
-  )
-  cfg.rewards["joint_deviation_legs"].params["asset_cfg"].joint_names = (
-    ".*_hip_roll_joint",
-    ".*_hip_yaw_joint",
-  )
-  cfg.rewards["base_height"].params["target_height"] = EFFORT_STANDING_ROOT_HEIGHT
+  # import from isaac lab
+  # cfg.rewards["joint_deviation_arms"].params["asset_cfg"].joint_names = (
+  #   ".*_shoulder_.*_joint",
+  #   ".*_elbow_joint",
+  #   ".*_wrist_.*",
+  # )
+  # cfg.rewards["joint_deviation_waists"].params["asset_cfg"].joint_names = (
+  #   "waist.*",
+  # )
+  # cfg.rewards["joint_deviation_legs"].params["asset_cfg"].joint_names = (
+  #   ".*_hip_roll_joint",
+  #   ".*_hip_yaw_joint",
+  # )
+  cfg.rewards["pose"].params["std_standing"] = {".*": 0.05}
+  cfg.rewards["pose"].params["std_walking"] = {
+    r".*hip_pitch.*": 0.5,
+    r".*hip_roll.*": 0.15,
+    r".*hip_yaw.*": 0.15,
+    r".*knee.*": 0.5,
+    r".*ankle_pitch.*": 0.15,
+    r".*ankle_roll.*": 0.1,
+    r".*waist_yaw.*": 0.15,
+    r".*waist_roll.*": 0.1,
+    r".*waist_pitch.*": 0.1,
+    r".*shoulder_pitch.*": 0.15,
+    r".*shoulder_roll.*": 0.1,
+    r".*shoulder_yaw.*": 0.1,
+    r".*elbow.*": 0.1,
+    r".*wrist.*": 0.1,
+  }
+  cfg.rewards["pose"].params["std_running"] = {
+    r".*hip_pitch.*": 0.5,
+    r".*hip_roll.*": 0.25,
+    r".*hip_yaw.*": 0.25,
+    r".*knee.*": 0.5,
+    r".*ankle_pitch.*": 0.25,
+    r".*ankle_roll.*": 0.1,
+    r".*waist_yaw.*": 0.25,
+    r".*waist_roll.*": 0.1,
+    r".*waist_pitch.*": 0.1,
+    r".*shoulder_pitch.*": 0.25,
+    r".*shoulder_roll.*": 0.1,
+    r".*shoulder_yaw.*": 0.1,
+    r".*elbow.*": 0.1,
+    r".*wrist.*": 0.1,
+  }
+  # Isaac Lab root-height L2. Disabled; standing pose + stand_still cover it.
+  # cfg.rewards["base_height"].params["target_height"] = EFFORT_STANDING_ROOT_HEIGHT
 
   cfg.viewer.body_name = "torso_link"
 

@@ -90,12 +90,29 @@ def unitree_go2_rough_env_cfg(
 
   cfg.actions = {"joint_effort": go2_effort_action_cfg()}
 
-  cfg.rewards["joint_deviation_arms"].weight = 0.0
-  cfg.rewards["joint_deviation_waists"].weight = 0.0
-  cfg.rewards["joint_deviation_legs"].params["asset_cfg"].joint_names = (
-    ".*_hip_joint",
-  )
-  cfg.rewards["base_height"].params["target_height"] = 0.32
+  # import from isaac lab
+  # cfg.rewards["joint_deviation_arms"].weight = 0.0
+  # cfg.rewards["joint_deviation_waists"].weight = 0.0
+  # cfg.rewards["joint_deviation_legs"].params["asset_cfg"].joint_names = (
+  #   ".*_hip_joint",
+  # )
+  cfg.rewards["pose"].params["std_standing"] = {
+    r".*(FR|FL|RR|RL)_hip_joint.*": 0.05,
+    r".*(FR|FL|RR|RL)_thigh_joint.*": 0.1,
+    r".*(FR|FL|RR|RL)_calf_joint.*": 0.15,
+  }
+  cfg.rewards["pose"].params["std_walking"] = {
+    r".*(FR|FL|RR|RL)_hip_joint.*": 0.15,
+    r".*(FR|FL|RR|RL)_thigh_joint.*": 0.35,
+    r".*(FR|FL|RR|RL)_calf_joint.*": 0.5,
+  }
+  cfg.rewards["pose"].params["std_running"] = {
+    r".*(FR|FL|RR|RL)_hip_joint.*": 0.15,
+    r".*(FR|FL|RR|RL)_thigh_joint.*": 0.35,
+    r".*(FR|FL|RR|RL)_calf_joint.*": 0.5,
+  }
+  # Isaac Lab root-height L2. Disabled; standing pose + stand_still cover it.
+  # cfg.rewards["base_height"].params["target_height"] = 0.32
 
   cfg.viewer.body_name = "base_link"
   cfg.viewer.distance = 1.5
