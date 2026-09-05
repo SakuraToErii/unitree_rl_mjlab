@@ -91,11 +91,17 @@ def joint_deviation_l1(
 def base_height_l2(
   env: ManagerBasedRlEnv,
   target_height: float,
+  deadzone: float = 0.0,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
-  """Penalize squared deviation from a target root-link height."""
+  """Penalize squared root-height error outside a deadzone.
+
+  Errors within ``deadzone`` meters are zero so small CoM bob is free.
+  """
   asset: Entity = env.scene[asset_cfg.name]
-  return torch.square(asset.data.root_link_pos_w[:, 2] - target_height)
+  error = torch.abs(asset.data.root_link_pos_w[:, 2] - target_height)
+  excess = torch.clamp(error - deadzone, min=0.0)
+  return torch.square(excess)
 
 
 def track_linear_velocity(

@@ -111,8 +111,7 @@ def unitree_go2_rough_env_cfg(
     r".*(FR|FL|RR|RL)_thigh_joint.*": 0.35,
     r".*(FR|FL|RR|RL)_calf_joint.*": 0.5,
   }
-  # Isaac Lab root-height L2. Disabled; standing pose + stand_still cover it.
-  # cfg.rewards["base_height"].params["target_height"] = 0.32
+  cfg.rewards["base_height"].params["target_height"] = 0.32
 
   cfg.viewer.body_name = "base_link"
   cfg.viewer.distance = 1.5

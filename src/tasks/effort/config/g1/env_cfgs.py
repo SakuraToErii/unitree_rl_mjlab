@@ -17,6 +17,7 @@ from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 import src.tasks.effort.mdp as mdp
 from src.tasks.effort.config.g1.action_cfg import g1_effort_action_cfg
 from src.tasks.effort.config.g1.robot_cfg import (
+  EFFORT_STANDING_ROOT_HEIGHT,
   get_g1_effort_robot_cfg,
 )
 from src.tasks.effort.velocity_env_cfg import enable_mha_history, make_effort_env_cfg
@@ -131,8 +132,7 @@ def unitree_g1_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     r".*elbow.*": 0.1,
     r".*wrist.*": 0.1,
   }
-  # Isaac Lab root-height L2. Disabled; standing pose + stand_still cover it.
-  # cfg.rewards["base_height"].params["target_height"] = EFFORT_STANDING_ROOT_HEIGHT
+  cfg.rewards["base_height"].params["target_height"] = EFFORT_STANDING_ROOT_HEIGHT
 
   cfg.viewer.body_name = "torso_link"
 

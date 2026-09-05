@@ -312,7 +312,12 @@ class EffortTaskTest(unittest.TestCase):
     self.assertNotIn("joint_deviation_arms", cfg.rewards)
     self.assertNotIn("joint_deviation_waists", cfg.rewards)
     self.assertNotIn("joint_deviation_legs", cfg.rewards)
-    self.assertNotIn("base_height", cfg.rewards)
+    self.assertEqual(cfg.rewards["base_height"].weight, -10.0)
+    self.assertEqual(
+      cfg.rewards["base_height"].params["target_height"],
+      EFFORT_STANDING_ROOT_HEIGHT,
+    )
+    self.assertEqual(cfg.rewards["base_height"].params["deadzone"], 0.02)
     self.assertIn("effort_action_rate_l2", cfg.rewards)
     self.assertEqual(
       cfg.actions["joint_effort"].offset,
@@ -322,7 +327,7 @@ class EffortTaskTest(unittest.TestCase):
     self.assertIn("nan_detection", cfg.terminations)
     self.assertEqual(cfg.rewards["foot_gait"].weight, 5.0)
     self.assertEqual(cfg.rewards["foot_gait"].params["period"], 0.6)
-    self.assertEqual(cfg.rewards["feet_air_time"].weight, 3.0)
+    self.assertEqual(cfg.rewards["feet_air_time"].weight, 2.0)
     self.assertEqual(cfg.rewards["feet_air_time"].params["threshold"], 0.30)
     self.assertEqual(
       cfg.rewards["feet_air_time"].params["sensor_name"],
@@ -342,7 +347,8 @@ class EffortTaskTest(unittest.TestCase):
       self.assertNotIn("joint_deviation_waists", cfg.rewards)
       self.assertNotIn("joint_deviation_legs", cfg.rewards)
       self.assertEqual(cfg.rewards["stand_still"].weight, -1.0)
-      self.assertNotIn("base_height", cfg.rewards)
+      self.assertEqual(cfg.rewards["base_height"].weight, -10.0)
+      self.assertEqual(cfg.rewards["base_height"].params["deadzone"], 0.02)
       self.assertNotIn("action_rate_l2", cfg.rewards)
       self.assertIn("effort_action_rate_l2", cfg.rewards)
 
@@ -350,12 +356,20 @@ class EffortTaskTest(unittest.TestCase):
       g1_23dof_cfg.rewards["pose"].params["std_walking"][r".*waist_yaw.*"],
       0.15,
     )
+    self.assertEqual(
+      g1_23dof_cfg.rewards["base_height"].params["target_height"],
+      0.79,
+    )
 
     self.assertEqual(
       go2_cfg.rewards["pose"].params["std_walking"][
         r".*(FR|FL|RR|RL)_calf_joint.*"
       ],
       0.5,
+    )
+    self.assertEqual(
+      go2_cfg.rewards["base_height"].params["target_height"],
+      0.32,
     )
     self.assertEqual(
       go2_cfg.rewards["foot_gait"].params["offset"],
@@ -452,6 +466,20 @@ class EffortTaskTest(unittest.TestCase):
     torch.testing.assert_close(
       mdp.base_height_l2(action_env, target_height=0.7),
       torch.full((2,), (0.789733 - 0.7) ** 2),
+    )
+    asset.data.root_link_pos_w[:, 2] = 0.80
+    torch.testing.assert_close(
+      mdp.base_height_l2(
+        action_env, target_height=0.78, deadzone=0.02
+      ),
+      torch.zeros(2),
+    )
+    asset.data.root_link_pos_w[:, 2] = 0.82
+    torch.testing.assert_close(
+      mdp.base_height_l2(
+        action_env, target_height=0.78, deadzone=0.02
+      ),
+      torch.full((2,), 0.02**2),
     )
 
   def test_mha_variants_only_add_observation_history(self) -> None:

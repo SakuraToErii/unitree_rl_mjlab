@@ -358,12 +358,11 @@ def make_effort_env_cfg() -> ManagerBasedRlEnvCfg:
         "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
       },
     ),
-    # Isaac Lab root-height L2. Disabled; standing pose + stand_still cover it.
-    # "base_height": RewardTermCfg(
-    #   func=mdp.base_height_l2,
-    #   weight=-10.0,
-    #   params={"target_height": 0.0},
-    # ),
+    "base_height": RewardTermCfg(
+      func=mdp.base_height_l2,
+      weight=-10.0,
+      params={"target_height": 0.0, "deadzone": 0.02},
+    ),
     "foot_gait": RewardTermCfg(
       func=mdp.feet_gait,
       weight=5.0,            # 保持，相位钟是主约束
@@ -378,7 +377,7 @@ def make_effort_env_cfg() -> ManagerBasedRlEnvCfg:
     ),
     "feet_air_time": RewardTermCfg(
       func=mdp.feet_air_time,
-      weight=3.0,            # 从 1.0 提上来，让它有存在感
+      weight=2.0,
       params={
         "sensor_name": "feet_ground_contact",
         "threshold": 0.30,   # 不用改，这个值其实是歪打正着

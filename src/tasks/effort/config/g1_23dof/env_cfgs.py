@@ -127,8 +127,7 @@ def unitree_g1_23dof_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     r".*elbow.*": 0.1,
     r".*wrist.*": 0.1,
   }
-  # Isaac Lab root-height L2. Disabled; standing pose + stand_still cover it.
-  # cfg.rewards["base_height"].params["target_height"] = 0.79
+  cfg.rewards["base_height"].params["target_height"] = 0.79
 
   cfg.viewer.body_name = "torso_link"
 
