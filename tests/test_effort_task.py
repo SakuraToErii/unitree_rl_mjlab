@@ -15,7 +15,7 @@ from mjlab.entity import Entity
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.envs.mdp.actions import JointEffortActionCfg, JointPositionActionCfg
 from mjlab.rl.exporter_utils import get_base_metadata
-from mjlab.tasks.registry import list_tasks, load_env_cfg
+from mjlab.tasks.registry import list_tasks, load_env_cfg, load_rl_cfg
 from mjlab.utils.lab_api.string import resolve_matching_names_values
 from rsl_rl.utils import resolve_callable
 from tensordict import TensorDict
@@ -526,7 +526,7 @@ class EffortTaskTest(unittest.TestCase):
     mha_cfg = unitree_g1_ppo_mha_runner_cfg()
     expected_distribution = {
       "class_name": "GaussianDistribution",
-      "init_std": 1,
+      "init_std": 1.0,
       "std_type": "scalar",
       "std_range": (1e-3, 2.0),
     }
@@ -537,6 +537,10 @@ class EffortTaskTest(unittest.TestCase):
     self.assertIs(resolve_callable(mha_cfg.actor.class_name), ResidualMhaModel)
     self.assertEqual(ppo_cfg.actor.distribution_cfg, expected_distribution)
     self.assertEqual(mha_cfg.actor.distribution_cfg, expected_distribution)
+    self.assertTrue(ppo_cfg.actor.obs_normalization)
+    self.assertTrue(mha_cfg.actor.obs_normalization)
+    self.assertTrue(ppo_cfg.critic.obs_normalization)
+    self.assertTrue(mha_cfg.critic.obs_normalization)
     self.assertIsNone(ppo_cfg.clip_actions)
     self.assertIsNone(mha_cfg.clip_actions)
     self.assertEqual(ppo_cfg.algorithm.entropy_coef, 0.001)
@@ -552,12 +556,25 @@ class EffortTaskTest(unittest.TestCase):
     )
     for other_cfg in other_runners:
       self.assertEqual(other_cfg.actor.distribution_cfg, expected_distribution)
+      self.assertTrue(other_cfg.actor.obs_normalization)
+      self.assertTrue(other_cfg.critic.obs_normalization)
       self.assertIsNone(other_cfg.clip_actions)
       self.assertEqual(other_cfg.algorithm.entropy_coef, 0.001)
 
     serialized_mha_cfg = asdict(mha_cfg)
     self.assertEqual(serialized_mha_cfg["actor"]["history_length"], 5)
     self.assertEqual(serialized_mha_cfg["actor"]["num_heads"], 4)
+
+    for task_id in ALL_EFFORT_TASK_IDS:
+      registered_cfg = load_rl_cfg(task_id)
+      self.assertTrue(
+        registered_cfg.actor.obs_normalization,
+        task_id,
+      )
+      self.assertTrue(
+        registered_cfg.critic.obs_normalization,
+        task_id,
+      )
 
   def test_residual_models_center_actor_output_and_export_mha(self) -> None:
     batch_size = 8
