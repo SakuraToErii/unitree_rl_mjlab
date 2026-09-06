@@ -294,12 +294,12 @@ def make_effort_env_cfg() -> ManagerBasedRlEnvCfg:
     ),
     "body_orientation_l2": RewardTermCfg(
       func=mdp.body_orientation_l2,
-      weight=-1.0,
+      weight=-4.0,
       params={"asset_cfg": SceneEntityCfg("robot", body_names=())},  # Set per-robot.
     ),
     "body_ang_vel": RewardTermCfg(
       func=mdp.body_angular_velocity_penalty,
-      weight=-0.05,  # Override per-robot
+      weight=-0.15,  # Override per-robot
       params={"asset_cfg": SceneEntityCfg("robot", body_names=())},  # Set per-robot.
     ),
     "angular_momentum": RewardTermCfg(

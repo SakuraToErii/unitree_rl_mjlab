@@ -316,6 +316,8 @@ class EffortTaskTest(unittest.TestCase):
       (".*_hip_roll_joint", ".*_hip_yaw_joint"),
     )
     self.assertEqual(cfg.rewards["joint_deviation_legs"].weight, -1.0)
+    self.assertEqual(cfg.rewards["body_orientation_l2"].weight, -4.0)
+    self.assertEqual(cfg.rewards["body_ang_vel"].weight, -0.15)
     for term_name in (
       "joint_deviation_arms",
       "joint_deviation_waists",
@@ -359,6 +361,8 @@ class EffortTaskTest(unittest.TestCase):
       self.assertIn("joint_deviation_waists", cfg.rewards)
       self.assertIn("joint_deviation_legs", cfg.rewards)
       self.assertEqual(cfg.rewards["stand_still"].weight, -1.0)
+      self.assertEqual(cfg.rewards["body_orientation_l2"].weight, -4.0)
+      self.assertEqual(cfg.rewards["body_ang_vel"].weight, -0.15)
       self.assertEqual(cfg.rewards["base_height"].weight, -10.0)
       self.assertEqual(cfg.rewards["base_height"].params["deadzone"], 0.02)
       self.assertNotIn("action_rate_l2", cfg.rewards)
