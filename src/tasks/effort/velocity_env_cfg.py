@@ -320,35 +320,35 @@ def make_effort_env_cfg() -> ManagerBasedRlEnvCfg:
       weight=-2e-5,
       params={"action_term_name": "joint_effort"},
     ),
-    # Isaac Lab L1 pose priors. Disabled; mjlab `pose` is used instead.
-    # "joint_deviation_arms": RewardTermCfg(
-    #   func=mdp.joint_deviation_l1,
-    #   weight=-0.1,
-    #   params={"asset_cfg": SceneEntityCfg("robot", joint_names=())},
-    # ),
-    # "joint_deviation_waists": RewardTermCfg(
-    #   func=mdp.joint_deviation_l1,
-    #   weight=-1.0,
-    #   params={"asset_cfg": SceneEntityCfg("robot", joint_names=())},
-    # ),
-    # "joint_deviation_legs": RewardTermCfg(
-    #   func=mdp.joint_deviation_l1,
-    #   weight=-1.0,
-    #   params={"asset_cfg": SceneEntityCfg("robot", joint_names=())},
-    # ),
-    "pose": RewardTermCfg(
-      func=mdp.variable_posture,
-      weight=1.0,
-      params={
-        "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
-        "command_name": "twist",
-        "std_standing": {},  # Set per-robot.
-        "std_walking": {},  # Set per-robot.
-        "std_running": {},  # Set per-robot.
-        "walking_threshold": 0.1,
-        "running_threshold": 1.5,
-      },
+    "joint_deviation_arms": RewardTermCfg(
+      func=mdp.joint_deviation_l1,
+      weight=-0.3,
+      params={"asset_cfg": SceneEntityCfg("robot", joint_names=())},
     ),
+    "joint_deviation_waists": RewardTermCfg(
+      func=mdp.joint_deviation_l1,
+      weight=-1.0,
+      params={"asset_cfg": SceneEntityCfg("robot", joint_names=())},
+    ),
+    "joint_deviation_legs": RewardTermCfg(
+      func=mdp.joint_deviation_l1,
+      weight=-1.0,
+      params={"asset_cfg": SceneEntityCfg("robot", joint_names=())},
+    ),
+    # mjlab speed-dependent pose. Disabled; Isaac L1 split does not pin hip pitch / knee.
+    # "pose": RewardTermCfg(
+    #   func=mdp.variable_posture,
+    #   weight=1.0,
+    #   params={
+    #     "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
+    #     "command_name": "twist",
+    #     "std_standing": {},  # Set per-robot.
+    #     "std_walking": {},  # Set per-robot.
+    #     "std_running": {},  # Set per-robot.
+    #     "walking_threshold": 0.1,
+    #     "running_threshold": 1.5,
+    #   },
+    # ),
     "stand_still": RewardTermCfg(
       func=mdp.stand_still,
       weight=-1.0,
