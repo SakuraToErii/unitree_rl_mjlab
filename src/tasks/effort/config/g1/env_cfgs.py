@@ -20,7 +20,11 @@ from src.tasks.effort.config.g1.robot_cfg import (
   EFFORT_STANDING_ROOT_HEIGHT,
   get_g1_effort_robot_cfg,
 )
-from src.tasks.effort.velocity_env_cfg import enable_mha_history, make_effort_env_cfg
+from src.tasks.effort.velocity_env_cfg import (
+  enable_mha_history,
+  enable_partial_actor_obs,
+  make_effort_env_cfg,
+)
 
 
 def unitree_g1_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
@@ -220,3 +224,13 @@ def unitree_g1_rough_mha_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 def unitree_g1_flat_mha_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   """Create the flat-terrain effort task with five-frame MHA history."""
   return enable_mha_history(unitree_g1_flat_env_cfg(play=play))
+
+
+def unitree_g1_flat_partial_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Create the flat-terrain effort task with a position-centric actor."""
+  return enable_partial_actor_obs(unitree_g1_flat_env_cfg(play=play))
+
+
+def unitree_g1_flat_partial_mha_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Create the flat partial-obs effort task with five-frame MHA history."""
+  return enable_mha_history(unitree_g1_flat_partial_env_cfg(play=play))

@@ -5,6 +5,8 @@ from src.tasks.effort.rl import EffortOnPolicyRunner
 from .env_cfgs import (
   unitree_g1_flat_env_cfg,
   unitree_g1_flat_mha_env_cfg,
+  unitree_g1_flat_partial_env_cfg,
+  unitree_g1_flat_partial_mha_env_cfg,
   unitree_g1_rough_env_cfg,
   unitree_g1_rough_mha_env_cfg,
 )
@@ -27,6 +29,14 @@ register_mjlab_task(
 )
 
 register_mjlab_task(
+  task_id="Unitree-G1-Effort-Flat-Partial",
+  env_cfg=unitree_g1_flat_partial_env_cfg(),
+  play_env_cfg=unitree_g1_flat_partial_env_cfg(play=True),
+  rl_cfg=unitree_g1_ppo_runner_cfg(),
+  runner_cls=EffortOnPolicyRunner,
+)
+
+register_mjlab_task(
   task_id="Unitree-G1-Effort-Rough-MHA",
   env_cfg=unitree_g1_rough_mha_env_cfg(),
   play_env_cfg=unitree_g1_rough_mha_env_cfg(play=True),
@@ -38,6 +48,14 @@ register_mjlab_task(
   task_id="Unitree-G1-Effort-Flat-MHA",
   env_cfg=unitree_g1_flat_mha_env_cfg(),
   play_env_cfg=unitree_g1_flat_mha_env_cfg(play=True),
+  rl_cfg=unitree_g1_ppo_mha_runner_cfg(),
+  runner_cls=EffortOnPolicyRunner,
+)
+
+register_mjlab_task(
+  task_id="Unitree-G1-Effort-Flat-Partial-MHA",
+  env_cfg=unitree_g1_flat_partial_mha_env_cfg(),
+  play_env_cfg=unitree_g1_flat_partial_mha_env_cfg(play=True),
   rl_cfg=unitree_g1_ppo_mha_runner_cfg(),
   runner_cls=EffortOnPolicyRunner,
 )

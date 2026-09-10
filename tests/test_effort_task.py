@@ -37,6 +37,8 @@ from src.tasks.effort.config.g1.action_cfg import (
 from src.tasks.effort.config.g1.env_cfgs import (
   unitree_g1_flat_env_cfg,
   unitree_g1_flat_mha_env_cfg,
+  unitree_g1_flat_partial_env_cfg,
+  unitree_g1_flat_partial_mha_env_cfg,
   unitree_g1_rough_env_cfg,
   unitree_g1_rough_mha_env_cfg,
 )
@@ -64,6 +66,8 @@ from src.tasks.effort.zero_pd import EFFORT_ACTION_SCALE_FRACTION
 G1_EFFORT_TASK_IDS = (
   "Unitree-G1-Effort-Rough",
   "Unitree-G1-Effort-Flat",
+  "Unitree-G1-Effort-Flat-Partial",
+  "Unitree-G1-Effort-Flat-Partial-MHA",
   "Unitree-G1-Effort-Rough-MHA",
   "Unitree-G1-Effort-Flat-MHA",
 )
@@ -503,6 +507,7 @@ class EffortTaskTest(unittest.TestCase):
     pairs = (
       (unitree_g1_rough_env_cfg(), unitree_g1_rough_mha_env_cfg()),
       (unitree_g1_flat_env_cfg(), unitree_g1_flat_mha_env_cfg()),
+      (unitree_g1_flat_partial_env_cfg(), unitree_g1_flat_partial_mha_env_cfg()),
     )
     for base_cfg, mha_cfg in pairs:
       self.assertEqual(base_cfg.rewards, mha_cfg.rewards)
@@ -521,6 +526,47 @@ class EffortTaskTest(unittest.TestCase):
       self.assertFalse(mha_cfg.observations["actor"].flatten_history_dim)
       self.assertEqual(mha_cfg.observations["critic"].history_length, 5)
       self.assertTrue(mha_cfg.observations["critic"].flatten_history_dim)
+
+  def test_flat_partial_strips_actor_and_keeps_privileged_critic(self) -> None:
+    cfg = load_env_cfg("Unitree-G1-Effort-Flat-Partial")
+    play_cfg = unitree_g1_flat_partial_env_cfg(play=True)
+
+    self.assertEqual(
+      set(cfg.observations["actor"].terms),
+      {"joint_pos", "command", "actions"},
+    )
+    self.assertEqual(
+      set(play_cfg.observations["actor"].terms),
+      {"joint_pos", "command", "actions"},
+    )
+    self.assertFalse(play_cfg.observations["actor"].enable_corruption)
+
+    critic_terms = cfg.observations["critic"].terms
+    for term_name in (
+      "base_ang_vel",
+      "projected_gravity",
+      "joint_vel",
+      "phase",
+      "foot_contact",
+      "foot_contact_forces",
+      "base_lin_vel",
+    ):
+      self.assertIn(term_name, critic_terms)
+    self.assertNotIn("height_scan", critic_terms)
+    self.assertEqual(cfg.observations["actor"].history_length, 5)
+    self.assertTrue(cfg.observations["actor"].flatten_history_dim)
+
+    mha_cfg = load_env_cfg("Unitree-G1-Effort-Flat-Partial-MHA")
+    self.assertEqual(
+      set(mha_cfg.observations["actor"].terms),
+      {"joint_pos", "command", "actions"},
+    )
+    self.assertFalse(mha_cfg.observations["actor"].flatten_history_dim)
+    self.assertTrue(
+      load_rl_cfg("Unitree-G1-Effort-Flat-Partial-MHA").actor.class_name.endswith(
+        ":ResidualMhaModel"
+      )
+    )
 
   def test_all_effort_variants_use_joint_effort_actions(self) -> None:
     for task_id in ALL_EFFORT_TASK_IDS:

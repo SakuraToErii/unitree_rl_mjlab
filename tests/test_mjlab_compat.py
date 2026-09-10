@@ -56,6 +56,8 @@ LOCAL_TASKS = {
   "Unitree-Go2-Flat",
   "Unitree-G1-Effort-Rough",
   "Unitree-G1-Effort-Flat",
+  "Unitree-G1-Effort-Flat-Partial",
+  "Unitree-G1-Effort-Flat-Partial-MHA",
   "Unitree-G1-Effort-Rough-MHA",
   "Unitree-G1-Effort-Flat-MHA",
   "Unitree-G1-23Dof-Effort-Rough",
