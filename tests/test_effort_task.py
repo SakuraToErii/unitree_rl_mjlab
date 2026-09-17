@@ -39,6 +39,8 @@ from src.tasks.effort.config.g1.env_cfgs import (
   unitree_g1_flat_mha_env_cfg,
   unitree_g1_flat_partial_env_cfg,
   unitree_g1_flat_partial_mha_env_cfg,
+  unitree_g1_flat_partial_phase1_env_cfg,
+  unitree_g1_flat_partial_phase1_mha_env_cfg,
   unitree_g1_rough_env_cfg,
   unitree_g1_rough_mha_env_cfg,
 )
@@ -67,9 +69,18 @@ G1_EFFORT_TASK_IDS = (
   "Unitree-G1-Effort-Rough",
   "Unitree-G1-Effort-Flat",
   "Unitree-G1-Effort-Flat-Partial",
+  "Unitree-G1-Effort-Flat-Partial-Phase1",
   "Unitree-G1-Effort-Flat-Partial-MHA",
+  "Unitree-G1-Effort-Flat-Partial-Phase1-MHA",
   "Unitree-G1-Effort-Rough-MHA",
   "Unitree-G1-Effort-Flat-MHA",
+)
+
+_G1_ANKLE_JOINTS = (
+  "left_ankle_pitch_joint",
+  "left_ankle_roll_joint",
+  "right_ankle_pitch_joint",
+  "right_ankle_roll_joint",
 )
 
 ALL_EFFORT_TASK_IDS = (
@@ -508,6 +519,10 @@ class EffortTaskTest(unittest.TestCase):
       (unitree_g1_rough_env_cfg(), unitree_g1_rough_mha_env_cfg()),
       (unitree_g1_flat_env_cfg(), unitree_g1_flat_mha_env_cfg()),
       (unitree_g1_flat_partial_env_cfg(), unitree_g1_flat_partial_mha_env_cfg()),
+      (
+        unitree_g1_flat_partial_phase1_env_cfg(),
+        unitree_g1_flat_partial_phase1_mha_env_cfg(),
+      ),
     )
     for base_cfg, mha_cfg in pairs:
       self.assertEqual(base_cfg.rewards, mha_cfg.rewards)
@@ -564,6 +579,52 @@ class EffortTaskTest(unittest.TestCase):
     self.assertFalse(mha_cfg.observations["actor"].flatten_history_dim)
     self.assertTrue(
       load_rl_cfg("Unitree-G1-Effort-Flat-Partial-MHA").actor.class_name.endswith(
+        ":ResidualMhaModel"
+      )
+    )
+
+  def test_flat_partial_phase1_drops_actor_ankle_encoders_only(self) -> None:
+    cfg = load_env_cfg("Unitree-G1-Effort-Flat-Partial-Phase1")
+    play_cfg = unitree_g1_flat_partial_phase1_env_cfg(play=True)
+    mha_cfg = load_env_cfg("Unitree-G1-Effort-Flat-Partial-Phase1-MHA")
+
+    self.assertEqual(
+      set(cfg.observations["actor"].terms),
+      {"joint_pos", "command", "actions"},
+    )
+    self.assertEqual(
+      set(play_cfg.observations["actor"].terms),
+      {"joint_pos", "command", "actions"},
+    )
+    self.assertFalse(play_cfg.observations["actor"].enable_corruption)
+    self.assertNotIn("asset_cfg", cfg.observations["critic"].terms["joint_pos"].params)
+    self.assertNotIn("asset_cfg", cfg.observations["actor"].terms["actions"].params)
+
+    robot = Entity(get_g1_effort_robot_cfg())
+    keep_names = cfg.observations["actor"].terms["joint_pos"].params[
+      "asset_cfg"
+    ].joint_names
+    _, observed_joints = robot.find_joints(keep_names)
+    dropped = [name for name in robot.joint_names if name not in observed_joints]
+    self.assertEqual(dropped, list(_G1_ANKLE_JOINTS))
+    self.assertEqual(len(observed_joints), 25)
+    self.assertEqual(len(robot.joint_names), 29)
+
+    action_cfg = cfg.actions["joint_effort"]
+    self.assertEqual(action_cfg.actuator_names, (".*",))
+
+    self.assertEqual(
+      set(mha_cfg.observations["actor"].terms),
+      {"joint_pos", "command", "actions"},
+    )
+    self.assertFalse(mha_cfg.observations["actor"].flatten_history_dim)
+    self.assertTrue(
+      load_rl_cfg("Unitree-G1-Effort-Flat-Partial-Phase1").actor.class_name.endswith(
+        ":ResidualMlpModel"
+      )
+    )
+    self.assertTrue(
+      load_rl_cfg("Unitree-G1-Effort-Flat-Partial-Phase1-MHA").actor.class_name.endswith(
         ":ResidualMhaModel"
       )
     )

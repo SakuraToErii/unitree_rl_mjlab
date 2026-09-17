@@ -4,6 +4,7 @@ from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
 from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
+from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import (
   ContactMatch,
   ContactSensorCfg,
@@ -231,6 +232,30 @@ def unitree_g1_flat_partial_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   return enable_partial_actor_obs(unitree_g1_flat_env_cfg(play=play))
 
 
+def unitree_g1_flat_partial_phase1_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Partial actor obs with both ankle encoders removed from joint_pos."""
+  cfg = unitree_g1_flat_partial_env_cfg(play=play)
+  cfg.observations["actor"].terms["joint_pos"].params["asset_cfg"] = SceneEntityCfg(
+    "robot",
+    joint_names=(
+      ".*_hip_.*_joint",
+      ".*_knee_joint",
+      "waist_.*_joint",
+      ".*_shoulder_.*_joint",
+      ".*_elbow_joint",
+      ".*_wrist_.*_joint",
+    ),
+  )
+  return cfg
+
+
 def unitree_g1_flat_partial_mha_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   """Create the flat partial-obs effort task with five-frame MHA history."""
   return enable_mha_history(unitree_g1_flat_partial_env_cfg(play=play))
+
+
+def unitree_g1_flat_partial_phase1_mha_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Create the flat partial phase-1 effort task with five-frame MHA history."""
+  return enable_mha_history(unitree_g1_flat_partial_phase1_env_cfg(play=play))
