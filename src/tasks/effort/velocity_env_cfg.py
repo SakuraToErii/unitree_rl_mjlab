@@ -304,7 +304,7 @@ def make_effort_env_cfg() -> ManagerBasedRlEnvCfg:
     ),
     "angular_momentum": RewardTermCfg(
       func=mdp.angular_momentum_penalty,
-      weight=-0.01,  # -0.025 Override per-robot
+      weight=-0.025,  # Override per-robot
       params={"sensor_name": "robot/root_angmom"},
     ),
     "is_terminated": RewardTermCfg(func=mdp.is_terminated, weight=-200.0),
@@ -322,7 +322,7 @@ def make_effort_env_cfg() -> ManagerBasedRlEnvCfg:
     ),
     "joint_deviation_arms": RewardTermCfg(
       func=mdp.joint_deviation_l1,
-      weight=-0.5, #-0.3
+      weight=-0.3,
       params={"asset_cfg": SceneEntityCfg("robot", joint_names=())},
     ),
     "joint_deviation_waists": RewardTermCfg(
@@ -361,7 +361,7 @@ def make_effort_env_cfg() -> ManagerBasedRlEnvCfg:
     "base_height": RewardTermCfg(
       func=mdp.base_height_l2,
       weight=-10.0,
-      params={"target_height": 0.0, "deadzone": 0.03},
+      params={"target_height": 0.0, "deadzone": 0.02},
     ),
     "foot_gait": RewardTermCfg(
       func=mdp.feet_gait,
