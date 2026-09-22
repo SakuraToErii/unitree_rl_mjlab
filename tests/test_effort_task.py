@@ -583,22 +583,41 @@ class EffortTaskTest(unittest.TestCase):
       )
     )
 
-  def test_flat_partial_phase1_drops_actor_ankle_encoders_only(self) -> None:
+  def test_flat_partial_phase1_keeps_imu_drops_ankles_and_command_curriculum(
+    self,
+  ) -> None:
     cfg = load_env_cfg("Unitree-G1-Effort-Flat-Partial-Phase1")
     play_cfg = unitree_g1_flat_partial_phase1_env_cfg(play=True)
     mha_cfg = load_env_cfg("Unitree-G1-Effort-Flat-Partial-Phase1-MHA")
 
     self.assertEqual(
       set(cfg.observations["actor"].terms),
-      {"joint_pos", "command", "actions"},
+      {
+        "base_ang_vel",
+        "projected_gravity",
+        "joint_pos",
+        "command",
+        "actions",
+      },
     )
     self.assertEqual(
       set(play_cfg.observations["actor"].terms),
-      {"joint_pos", "command", "actions"},
+      {
+        "base_ang_vel",
+        "projected_gravity",
+        "joint_pos",
+        "command",
+        "actions",
+      },
     )
+    self.assertNotIn("joint_vel", cfg.observations["actor"].terms)
+    self.assertNotIn("phase", cfg.observations["actor"].terms)
     self.assertFalse(play_cfg.observations["actor"].enable_corruption)
     self.assertNotIn("asset_cfg", cfg.observations["critic"].terms["joint_pos"].params)
     self.assertNotIn("asset_cfg", cfg.observations["actor"].terms["actions"].params)
+    self.assertEqual(cfg.curriculum, {})
+    self.assertEqual(play_cfg.curriculum, {})
+    self.assertEqual(mha_cfg.curriculum, {})
 
     robot = Entity(get_g1_effort_robot_cfg())
     keep_names = cfg.observations["actor"].terms["joint_pos"].params[
@@ -613,9 +632,20 @@ class EffortTaskTest(unittest.TestCase):
     action_cfg = cfg.actions["joint_effort"]
     self.assertEqual(action_cfg.actuator_names, (".*",))
 
+    twist_cmd = cfg.commands["twist"]
+    self.assertEqual(twist_cmd.ranges.lin_vel_x, (-2.0, 2.0))
+    self.assertEqual(twist_cmd.ranges.lin_vel_y, (-1.0, 1.0))
+    self.assertEqual(twist_cmd.ranges.ang_vel_z, (-1.0, 1.0))
+
     self.assertEqual(
       set(mha_cfg.observations["actor"].terms),
-      {"joint_pos", "command", "actions"},
+      {
+        "base_ang_vel",
+        "projected_gravity",
+        "joint_pos",
+        "command",
+        "actions",
+      },
     )
     self.assertFalse(mha_cfg.observations["actor"].flatten_history_dim)
     self.assertTrue(

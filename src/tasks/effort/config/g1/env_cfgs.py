@@ -233,9 +233,12 @@ def unitree_g1_flat_partial_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 
 
 def unitree_g1_flat_partial_phase1_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
-  """Partial actor obs with both ankle encoders removed from joint_pos."""
-  cfg = unitree_g1_flat_partial_env_cfg(play=play)
-  cfg.observations["actor"].terms["joint_pos"].params["asset_cfg"] = SceneEntityCfg(
+  """Ankle-blind actor that keeps IMU and uses a fixed twist command range."""
+  cfg = unitree_g1_flat_env_cfg(play=play)
+  actor_obs = cfg.observations["actor"]
+  for term_name in ("joint_vel", "phase"):
+    actor_obs.terms.pop(term_name, None)
+  actor_obs.terms["joint_pos"].params["asset_cfg"] = SceneEntityCfg(
     "robot",
     joint_names=(
       ".*_hip_.*_joint",
@@ -246,6 +249,7 @@ def unitree_g1_flat_partial_phase1_env_cfg(play: bool = False) -> ManagerBasedRl
       ".*_wrist_.*_joint",
     ),
   )
+  cfg.curriculum = {}
   return cfg
 
 
