@@ -445,8 +445,8 @@ def make_effort_env_cfg() -> ManagerBasedRlEnvCfg:
         "command_name": "twist",
         "velocity_stages": [
           {"step": 0, "lin_vel_x": (-0.5, 0.5), "lin_vel_y": (-0.5, 0.5), "ang_vel_z": (-1.0, 1.0)},
-          {"step": 10000 * 24, "lin_vel_x": (-1.5, 1.5), "lin_vel_y": (-1.0, 1.0)},
-          {"step": 15000 * 24, "lin_vel_x": (-2.0, 2.0)},
+          {"step": 20000 * 24, "lin_vel_x": (-1.5, 1.5), "lin_vel_y": (-1.0, 1.0)},
+          {"step": 30000 * 24, "lin_vel_x": (-2.0, 2.0)},
         ],
       },
     ),

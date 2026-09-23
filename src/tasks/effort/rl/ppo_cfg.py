@@ -2,7 +2,7 @@
 
 Runner assembly (actor/critic/PPO hyperparameters) lives in each robot's
 ``rl_cfg.py``, matching the velocity tasks. These dataclasses only exist
-because 0-PD uses a residual-centered output layer and an optional MHA actor.
+because 0-PD uses a residual-centered output layer and optional history actors.
 """
 
 from dataclasses import dataclass
@@ -28,3 +28,17 @@ class ResidualMhaModelCfg(ResidualMlpModelCfg):
   num_heads: int = 4
   encoder_hidden_dim: int = 256
   learnable_pos_embedding: bool = True
+
+
+@dataclass
+class ResidualCrossAttnModelCfg(ResidualMlpModelCfg):
+  """RSL-RL config for a current-frame query over per-joint history."""
+
+  class_name: str = "src.tasks.effort.rl.models:ResidualCrossAttnModel"
+  history_length: int = 5
+  num_heads: int = 4
+  encoder_hidden_dim: int = 256
+  joint_embedding_dim: int = 16
+  term_dims: tuple[tuple[str, int], ...] = ()
+  joint_pos_names: tuple[str, ...] = ()
+  action_names: tuple[str, ...] = ()

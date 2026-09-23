@@ -7,12 +7,19 @@ from .env_cfgs import (
   unitree_g1_flat_mha_env_cfg,
   unitree_g1_flat_partial_env_cfg,
   unitree_g1_flat_partial_mha_env_cfg,
+  unitree_g1_flat_partial_no_ankle_xattn_env_cfg,
   unitree_g1_flat_partial_phase1_env_cfg,
   unitree_g1_flat_partial_phase1_mha_env_cfg,
+  unitree_g1_flat_partial_phase1_xattn_env_cfg,
+  unitree_g1_flat_partial_xattn_env_cfg,
   unitree_g1_rough_env_cfg,
   unitree_g1_rough_mha_env_cfg,
 )
-from .rl_cfg import unitree_g1_ppo_mha_runner_cfg, unitree_g1_ppo_runner_cfg
+from .rl_cfg import (
+  unitree_g1_ppo_cross_attn_runner_cfg,
+  unitree_g1_ppo_mha_runner_cfg,
+  unitree_g1_ppo_runner_cfg,
+)
 
 register_mjlab_task(
   task_id="Unitree-G1-Effort-Rough",
@@ -75,5 +82,32 @@ register_mjlab_task(
   env_cfg=unitree_g1_flat_partial_phase1_mha_env_cfg(),
   play_env_cfg=unitree_g1_flat_partial_phase1_mha_env_cfg(play=True),
   rl_cfg=unitree_g1_ppo_mha_runner_cfg(),
+  runner_cls=EffortOnPolicyRunner,
+)
+
+_partial_xattn_env_cfg = unitree_g1_flat_partial_xattn_env_cfg()
+register_mjlab_task(
+  task_id="Unitree-G1-Effort-Flat-Partial-XAttn",
+  env_cfg=_partial_xattn_env_cfg,
+  play_env_cfg=unitree_g1_flat_partial_xattn_env_cfg(play=True),
+  rl_cfg=unitree_g1_ppo_cross_attn_runner_cfg(_partial_xattn_env_cfg),
+  runner_cls=EffortOnPolicyRunner,
+)
+
+_no_ankle_xattn_env_cfg = unitree_g1_flat_partial_no_ankle_xattn_env_cfg()
+register_mjlab_task(
+  task_id="Unitree-G1-Effort-Flat-Partial-NoAnkle-XAttn",
+  env_cfg=_no_ankle_xattn_env_cfg,
+  play_env_cfg=unitree_g1_flat_partial_no_ankle_xattn_env_cfg(play=True),
+  rl_cfg=unitree_g1_ppo_cross_attn_runner_cfg(_no_ankle_xattn_env_cfg),
+  runner_cls=EffortOnPolicyRunner,
+)
+
+_phase1_xattn_env_cfg = unitree_g1_flat_partial_phase1_xattn_env_cfg()
+register_mjlab_task(
+  task_id="Unitree-G1-Effort-Flat-Partial-Phase1-XAttn",
+  env_cfg=_phase1_xattn_env_cfg,
+  play_env_cfg=unitree_g1_flat_partial_phase1_xattn_env_cfg(play=True),
+  rl_cfg=unitree_g1_ppo_cross_attn_runner_cfg(_phase1_xattn_env_cfg),
   runner_cls=EffortOnPolicyRunner,
 )

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
+import tempfile
 import unittest
+from pathlib import Path
 from dataclasses import asdict
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -61,7 +63,15 @@ from src.tasks.effort.config.g1.robot_cfg import (
   EFFORT_STANDING_ROOT_HEIGHT,
   get_g1_effort_robot_cfg,
 )
-from src.tasks.effort.rl.models import ResidualMhaModel, ResidualMlpModel
+from src.tasks.effort.rl.joint_attention import (
+  mean_joint_attention,
+  plot_joint_attention,
+)
+from src.tasks.effort.rl.models import (
+  ResidualCrossAttnModel,
+  ResidualMhaModel,
+  ResidualMlpModel,
+)
 from src.tasks.effort.rl.runner import get_effort_metadata
 from src.tasks.effort.zero_pd import EFFORT_ACTION_SCALE_FRACTION
 
@@ -72,6 +82,9 @@ G1_EFFORT_TASK_IDS = (
   "Unitree-G1-Effort-Flat-Partial-Phase1",
   "Unitree-G1-Effort-Flat-Partial-MHA",
   "Unitree-G1-Effort-Flat-Partial-Phase1-MHA",
+  "Unitree-G1-Effort-Flat-Partial-XAttn",
+  "Unitree-G1-Effort-Flat-Partial-NoAnkle-XAttn",
+  "Unitree-G1-Effort-Flat-Partial-Phase1-XAttn",
   "Unitree-G1-Effort-Rough-MHA",
   "Unitree-G1-Effort-Flat-MHA",
 )
@@ -615,9 +628,14 @@ class EffortTaskTest(unittest.TestCase):
     self.assertFalse(play_cfg.observations["actor"].enable_corruption)
     self.assertNotIn("asset_cfg", cfg.observations["critic"].terms["joint_pos"].params)
     self.assertNotIn("asset_cfg", cfg.observations["actor"].terms["actions"].params)
-    self.assertEqual(cfg.curriculum, {})
+    flat_cfg = unitree_g1_flat_env_cfg()
+    self.assertEqual(cfg.curriculum, flat_cfg.curriculum)
+    self.assertIn("command_vel", cfg.curriculum)
     self.assertEqual(play_cfg.curriculum, {})
-    self.assertEqual(mha_cfg.curriculum, {})
+    self.assertEqual(mha_cfg.curriculum, cfg.curriculum)
+    stages = cfg.curriculum["command_vel"].params["velocity_stages"]
+    self.assertEqual(stages[1]["step"], 20000 * 24)
+    self.assertEqual(stages[2]["step"], 30000 * 24)
 
     robot = Entity(get_g1_effort_robot_cfg())
     keep_names = cfg.observations["actor"].terms["joint_pos"].params[
@@ -787,6 +805,287 @@ class EffortTaskTest(unittest.TestCase):
     exported = mha.as_onnx()(mha_obs["actor"])
     self.assertEqual(expected.shape, (batch_size, output_dim))
     torch.testing.assert_close(exported, expected)
+
+  def test_cross_attention_ignores_history_outside_observed_joint_q_and_a(
+    self,
+  ) -> None:
+    model, obs = _toy_cross_attn()
+    actions = model(obs)
+    weights = model.attention_weights(obs)
+
+    past_command = _clone_actor_obs(obs)
+    past_command["actor"][:, :-1, 0:3] += 1.5
+    torch.testing.assert_close(model(past_command), actions)
+    torch.testing.assert_close(model.attention_weights(past_command), weights)
+
+    past_ankle_action = _clone_actor_obs(obs)
+    past_ankle_action["actor"][:, :-1, 7] += 1.5
+    torch.testing.assert_close(model(past_ankle_action), actions)
+    torch.testing.assert_close(
+      model.attention_weights(past_ankle_action), weights
+    )
+
+  def test_cross_attention_keeps_past_joint_samples_in_time_order(self) -> None:
+    model, obs = _toy_cross_attn()
+    obs["actor"].zero_()
+    obs["actor"][:, 0, 3] = 1
+    obs["actor"][:, 1, 3] = 2
+    obs["actor"][:, 2, 3] = 3
+    obs["actor"][:, 3, 3] = 4
+    ordered = model.attention_weights(obs)
+
+    reversed_history = _clone_actor_obs(obs)
+    reversed_history["actor"][:, 0, 3] = 4
+    reversed_history["actor"][:, 3, 3] = 1
+    self.assertFalse(
+      torch.allclose(model.attention_weights(reversed_history), ordered)
+    )
+
+  def test_identical_joint_histories_receive_different_attention(self) -> None:
+    model, obs = _toy_cross_attn()
+    obs["actor"].zero_()
+    for frame, value in enumerate((1.0, 2.0, 3.0, 4.0)):
+      obs["actor"][:, frame, 3] = value
+      obs["actor"][:, frame, 4] = value
+      obs["actor"][:, frame, 5] = value
+      obs["actor"][:, frame, 6] = value
+
+    weights = model.attention_weights(obs)
+    self.assertFalse(torch.allclose(weights[..., 0], weights[..., 1]))
+
+  def test_attention_weights_are_a_distribution_over_observed_joints(self) -> None:
+    model, obs = _toy_cross_attn()
+    weights = model.attention_weights(obs)
+
+    self.assertEqual(model.joint_names, ("knee", "hip"))
+    self.assertEqual(tuple(weights.shape), (2, 2, 2))
+    torch.testing.assert_close(weights.sum(dim=-1), torch.ones(2, 2))
+
+  def test_past_action_of_an_observed_joint_changes_attention(self) -> None:
+    model, obs = _toy_cross_attn()
+    obs["actor"].zero_()
+    baseline = model.attention_weights(obs)
+    changed = _clone_actor_obs(obs)
+    # command (3) then joint_pos (2); knee is the first action.
+    changed["actor"][:, :-1, 5] += 1.5
+    self.assertFalse(torch.allclose(model.attention_weights(changed), baseline))
+
+  def test_current_frame_reaches_actions_for_joints_without_history_tokens(
+    self,
+  ) -> None:
+    model, obs = _toy_cross_attn()
+    actions = model(obs)
+    current_ankle_action = _clone_actor_obs(obs)
+    current_ankle_action["actor"][:, -1, 7] += 1.5
+    self.assertFalse(torch.allclose(model(current_ankle_action), actions))
+
+  def test_cross_attention_export_matches_actions_and_centers_output(self) -> None:
+    model, obs = _toy_cross_attn()
+    output_layer = _last_linear(model.mlp)
+    torch.testing.assert_close(
+      output_layer.weight.norm(dim=1),
+      torch.full((4,), 0.01),
+      atol=1.0e-6,
+      rtol=1.0e-5,
+    )
+    torch.testing.assert_close(model.as_onnx()(obs["actor"]), model(obs))
+
+  def test_cross_attn_tasks_follow_parent_observations_and_joint_names(
+    self,
+  ) -> None:
+    robot = Entity(get_g1_effort_robot_cfg())
+    all_joints = tuple(robot.joint_names)
+    ankle_free = tuple(name for name in all_joints if name not in _G1_ANKLE_JOINTS)
+    cases = (
+      (
+        "Unitree-G1-Effort-Flat-Partial-XAttn",
+        "Unitree-G1-Effort-Flat-Partial",
+        ("command", "joint_pos", "actions"),
+        (("command", 3), ("joint_pos", 29), ("actions", 29)),
+        all_joints,
+      ),
+      (
+        "Unitree-G1-Effort-Flat-Partial-NoAnkle-XAttn",
+        "Unitree-G1-Effort-Flat-Partial",
+        ("command", "joint_pos", "actions"),
+        (("command", 3), ("joint_pos", 25), ("actions", 29)),
+        ankle_free,
+      ),
+      (
+        "Unitree-G1-Effort-Flat-Partial-Phase1-XAttn",
+        "Unitree-G1-Effort-Flat-Partial-Phase1",
+        (
+          "base_ang_vel",
+          "projected_gravity",
+          "command",
+          "joint_pos",
+          "actions",
+        ),
+        (
+          ("base_ang_vel", 3),
+          ("projected_gravity", 3),
+          ("command", 3),
+          ("joint_pos", 25),
+          ("actions", 29),
+        ),
+        ankle_free,
+      ),
+    )
+
+    for task_id, parent_id, term_names, term_dims, joint_names in cases:
+      cfg = load_env_cfg(task_id)
+      parent = load_env_cfg(parent_id)
+      play_cfg = load_env_cfg(task_id, play=True)
+      rl_cfg = load_rl_cfg(task_id)
+
+      self.assertEqual(tuple(cfg.observations["actor"].terms), term_names)
+      self.assertEqual(cfg.rewards, parent.rewards)
+      self.assertEqual(cfg.commands, parent.commands)
+      self.assertEqual(cfg.curriculum, parent.curriculum)
+      self.assertEqual(
+        cfg.observations["critic"].terms, parent.observations["critic"].terms
+      )
+      self.assertEqual(cfg.observations["actor"].history_length, 5)
+      self.assertFalse(cfg.observations["actor"].flatten_history_dim)
+      self.assertTrue(cfg.observations["critic"].flatten_history_dim)
+      self.assertFalse(play_cfg.observations["actor"].enable_corruption)
+      self.assertFalse(play_cfg.observations["actor"].flatten_history_dim)
+
+      asset_cfg = cfg.observations["actor"].terms["joint_pos"].params.get(
+        "asset_cfg"
+      )
+      if asset_cfg is None:
+        resolved = all_joints
+      else:
+        _, resolved_names = robot.find_joints(asset_cfg.joint_names)
+        resolved = tuple(resolved_names)
+      self.assertEqual(resolved, joint_names)
+      self.assertNotIn(
+        "asset_cfg", cfg.observations["critic"].terms["joint_pos"].params
+      )
+
+      self.assertTrue(rl_cfg.actor.class_name.endswith(":ResidualCrossAttnModel"))
+      self.assertIs(resolve_callable(rl_cfg.actor.class_name), ResidualCrossAttnModel)
+      self.assertEqual(rl_cfg.experiment_name, "g1_effort_xattn")
+      self.assertEqual(rl_cfg.max_iterations, 10_000)
+      self.assertEqual(rl_cfg.actor.joint_embedding_dim, 16)
+      self.assertEqual(
+        tuple(tuple(item) for item in rl_cfg.actor.term_dims), term_dims
+      )
+      self.assertEqual(tuple(rl_cfg.actor.joint_pos_names), joint_names)
+      self.assertEqual(tuple(rl_cfg.actor.action_names), all_joints)
+
+    self.assertTrue(
+      load_rl_cfg("Unitree-G1-Effort-Flat-Partial-MHA").actor.class_name.endswith(
+        ":ResidualMhaModel"
+      )
+    )
+    self.assertTrue(
+      load_rl_cfg(
+        "Unitree-G1-Effort-Flat-Partial-Phase1-MHA"
+      ).actor.class_name.endswith(":ResidualMhaModel")
+    )
+    self.assertTrue(
+      load_rl_cfg("Unitree-G1-Effort-Flat-Partial-Phase1").actor.class_name.endswith(
+        ":ResidualMlpModel"
+      )
+    )
+
+  def test_registered_cross_attn_actor_emits_effort_and_named_weights(self) -> None:
+    expected_joints = {
+      "Unitree-G1-Effort-Flat-Partial-XAttn": 29,
+      "Unitree-G1-Effort-Flat-Partial-NoAnkle-XAttn": 25,
+      "Unitree-G1-Effort-Flat-Partial-Phase1-XAttn": 25,
+    }
+    for task_id, num_joints in expected_joints.items():
+      rl_cfg = load_rl_cfg(task_id)
+      width = sum(int(dim) for _, dim in rl_cfg.actor.term_dims)
+      batch_size = 2
+      obs = TensorDict(
+        {"actor": torch.randn(batch_size, 5, width)}, batch_size=[batch_size]
+      )
+      model = resolve_callable(rl_cfg.actor.class_name)(
+        obs,
+        {"actor": ["actor"]},
+        "actor",
+        29,
+        hidden_dims=rl_cfg.actor.hidden_dims,
+        activation=rl_cfg.actor.activation,
+        obs_normalization=True,
+        distribution_cfg=dict(rl_cfg.actor.distribution_cfg),
+        history_length=rl_cfg.actor.history_length,
+        num_heads=rl_cfg.actor.num_heads,
+        encoder_hidden_dim=rl_cfg.actor.encoder_hidden_dim,
+        joint_embedding_dim=rl_cfg.actor.joint_embedding_dim,
+        term_dims=rl_cfg.actor.term_dims,
+        joint_pos_names=rl_cfg.actor.joint_pos_names,
+        action_names=rl_cfg.actor.action_names,
+      )
+      model.update_normalization(obs)
+      actions = model(obs)
+      weights = model.attention_weights(obs)
+      self.assertEqual(tuple(actions.shape), (batch_size, 29))
+      self.assertEqual(tuple(weights.shape), (batch_size, 4, num_joints))
+      self.assertEqual(tuple(model.joint_names), tuple(rl_cfg.actor.joint_pos_names))
+      torch.testing.assert_close(
+        weights.sum(dim=-1), torch.ones(batch_size, 4), atol=1e-5, rtol=1e-5
+      )
+
+  def test_joint_attention_plot_averages_heads_into_one_red_heatmap(self) -> None:
+    weights = torch.tensor([[0.2, 0.8], [0.0, 1.0]])
+    torch.testing.assert_close(
+      mean_joint_attention(weights), torch.tensor([0.1, 0.9])
+    )
+    batched = torch.stack(
+      (
+        torch.tensor([[0.2, 0.8], [0.0, 1.0]]),
+        torch.tensor([[0.2, 0.8], [0.0, 1.0]]),
+      )
+    )
+    torch.testing.assert_close(
+      mean_joint_attention(batched), torch.tensor([0.1, 0.9])
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+      path = Path(tmp) / "attention.png"
+      plot_joint_attention(weights, ("left_knee_joint", "right_knee_joint"), path)
+      self.assertGreater(path.stat().st_size, 0)
+
+
+def _clone_actor_obs(obs: TensorDict) -> TensorDict:
+  return TensorDict(
+    {"actor": obs["actor"].clone()}, batch_size=obs.batch_size
+  )
+
+
+def _toy_cross_attn() -> tuple[ResidualCrossAttnModel, TensorDict]:
+  """Two observed joints plus an ankle action that has no position token.
+
+  Flat frame layout is command (3), joint_pos (knee, hip), actions
+  (knee, hip, ankle). History length is 5, so the past axis is the first 4.
+  """
+  torch.manual_seed(0)
+  batch_size = 2
+  obs = TensorDict(
+    {"actor": torch.randn(batch_size, 5, 8)}, batch_size=[batch_size]
+  )
+  model = ResidualCrossAttnModel(
+    obs,
+    {"actor": ["actor"]},
+    "actor",
+    4,
+    hidden_dims=(16, 16),
+    obs_normalization=False,
+    history_length=5,
+    num_heads=2,
+    encoder_hidden_dim=8,
+    joint_embedding_dim=4,
+    term_dims=(("command", 3), ("joint_pos", 2), ("actions", 3)),
+    joint_pos_names=("knee", "hip"),
+    action_names=("knee", "hip", "ankle"),
+  )
+  model.eval()
+  return model, obs
 
 
 if __name__ == "__main__":
