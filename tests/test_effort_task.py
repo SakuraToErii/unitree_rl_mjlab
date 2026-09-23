@@ -63,6 +63,7 @@ from src.tasks.effort.config.g1.robot_cfg import (
   EFFORT_STANDING_ROOT_HEIGHT,
   get_g1_effort_robot_cfg,
 )
+from src.tasks.effort.rl.bf16_autocast import Bf16AutocastModel, Bf16AutocastPPO
 from src.tasks.effort.rl.joint_attention import (
   mean_joint_attention,
   plot_joint_attention,
@@ -889,6 +890,102 @@ class EffortTaskTest(unittest.TestCase):
       rtol=1.0e-5,
     )
     torch.testing.assert_close(model.as_onnx()(obs["actor"]), model(obs))
+
+  def test_cross_attn_runner_uses_bf16_autocast_ppo_only(self) -> None:
+    xattn = load_rl_cfg("Unitree-G1-Effort-Flat-Partial-XAttn")
+    self.assertEqual(
+      xattn.algorithm.class_name,
+      "src.tasks.effort.rl.bf16_autocast:Bf16AutocastPPO",
+    )
+    self.assertIs(
+      resolve_callable(xattn.algorithm.class_name), Bf16AutocastPPO
+    )
+    self.assertEqual(
+      load_rl_cfg("Unitree-G1-Effort-Flat-Partial").algorithm.class_name, "PPO"
+    )
+    self.assertEqual(
+      load_rl_cfg("Unitree-G1-Effort-Flat-Partial-MHA").algorithm.class_name,
+      "PPO",
+    )
+
+  def test_bf16_autocast_wrapper_keeps_fp32_outputs_and_matches_on_cpu(
+    self,
+  ) -> None:
+    model, obs = _toy_cross_attn()
+    wrapped = Bf16AutocastModel(model)
+    for param in wrapped.parameters():
+      self.assertEqual(param.dtype, torch.float32)
+
+    baseline = model(obs)
+    wrapped_out = wrapped(obs)
+    self.assertEqual(wrapped_out.dtype, torch.float32)
+    torch.testing.assert_close(wrapped_out, baseline)
+
+    stochastic_model = ResidualCrossAttnModel(
+      obs,
+      {"actor": ["actor"]},
+      "actor",
+      4,
+      hidden_dims=(16, 16),
+      obs_normalization=False,
+      distribution_cfg={
+        "class_name": "GaussianDistribution",
+        "init_std": 1.0,
+        "std_type": "scalar",
+      },
+      history_length=5,
+      num_heads=2,
+      encoder_hidden_dim=8,
+      joint_embedding_dim=4,
+      term_dims=(("command", 3), ("joint_pos", 2), ("actions", 3)),
+      joint_pos_names=("knee", "hip"),
+      action_names=("knee", "hip", "ankle"),
+    )
+    stochastic_wrapped = Bf16AutocastModel(stochastic_model)
+    stochastic = stochastic_wrapped(obs, stochastic_output=True)
+    self.assertEqual(stochastic.dtype, torch.float32)
+    log_prob = stochastic_wrapped.get_output_log_prob(stochastic)
+    self.assertEqual(log_prob.dtype, torch.float32)
+
+    critic = ResidualMlpModel(
+      TensorDict({"critic": torch.randn(2, 8)}, batch_size=[2]),
+      {"critic": ["critic"]},
+      "critic",
+      1,
+      hidden_dims=(16, 16),
+      obs_normalization=False,
+    )
+    critic_obs = TensorDict({"critic": torch.randn(2, 8)}, batch_size=[2])
+    wrapped_critic = Bf16AutocastModel(critic)
+    values = wrapped_critic(critic_obs)
+    self.assertEqual(values.dtype, torch.float32)
+    torch.testing.assert_close(values, critic(critic_obs))
+
+    if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
+      cuda_model = ResidualCrossAttnModel(
+        obs,
+        {"actor": ["actor"]},
+        "actor",
+        4,
+        hidden_dims=(16, 16),
+        obs_normalization=False,
+        history_length=5,
+        num_heads=2,
+        encoder_hidden_dim=8,
+        joint_embedding_dim=4,
+        term_dims=(("command", 3), ("joint_pos", 2), ("actions", 3)),
+        joint_pos_names=("knee", "hip"),
+        action_names=("knee", "hip", "ankle"),
+      ).to("cuda")
+      cuda_obs = TensorDict(
+        {"actor": obs["actor"].to("cuda")}, batch_size=obs.batch_size
+      )
+      cuda_wrapped = Bf16AutocastModel(cuda_model)
+      for param in cuda_wrapped.parameters():
+        self.assertEqual(param.dtype, torch.float32)
+      cuda_actions = cuda_wrapped(cuda_obs)
+      self.assertEqual(cuda_actions.dtype, torch.float32)
+      self.assertEqual(cuda_actions.device.type, "cuda")
 
   def test_cross_attn_tasks_follow_parent_observations_and_joint_names(
     self,

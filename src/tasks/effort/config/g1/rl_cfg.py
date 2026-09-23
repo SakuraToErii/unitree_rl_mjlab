@@ -164,6 +164,7 @@ def unitree_g1_ppo_cross_attn_runner_cfg(
       lam=0.95,
       desired_kl=0.01,
       max_grad_norm=1.0,
+      class_name="src.tasks.effort.rl.bf16_autocast:Bf16AutocastPPO",
     ),
     experiment_name="g1_effort_xattn",
     save_interval=100,
