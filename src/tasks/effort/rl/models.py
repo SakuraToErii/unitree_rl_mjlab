@@ -8,6 +8,7 @@ from typing import cast
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from rsl_rl.models import MLPModel
 from rsl_rl.modules import HiddenState
 from rsl_rl.utils import resolve_nn_activation
@@ -390,31 +391,60 @@ class _JointCrossAttention(nn.Module):
     action_index: torch.Tensor,
   ) -> None:
     super().__init__()
+    if hidden_dim % num_heads != 0:
+      raise ValueError("hidden_dim must be divisible by num_heads.")
+    self.num_heads = num_heads
+    self.head_dim = hidden_dim // num_heads
+    self.scale = self.head_dim**-0.5
     self.query_encoder = _FrameEncoder(feature_dim, hidden_dim, activation)
     self.slicer = _JointHistorySlicer(joint_pos_slice, action_slice, action_index)
     self.joint_encoder = _JointHistoryEncoder(
       history_span, num_joints, joint_embedding_dim, hidden_dim, activation
     )
-    self.attention = nn.MultiheadAttention(hidden_dim, num_heads, batch_first=True)
+    self.q_proj = nn.Linear(hidden_dim, hidden_dim)
+    self.k_proj = nn.Linear(hidden_dim, hidden_dim)
+    self.v_proj = nn.Linear(hidden_dim, hidden_dim)
+    self.out_proj = nn.Linear(hidden_dim, hidden_dim)
 
-  def forward(self, sequence: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+  def forward(self, sequence: torch.Tensor) -> torch.Tensor:
+    query, keys = self._encode(sequence)
+    q, k, v = self._project_qkv(query, keys)
+    attended = F.scaled_dot_product_attention(q, k, v, dropout_p=0.0)
+    attended = (
+      attended.transpose(1, 2).contiguous().view(query.shape[0], -1)
+    )
+    attended = self.out_proj(attended)
+    return torch.cat((query, attended), dim=-1)
+
+  def attention_weights(self, sequence: torch.Tensor) -> torch.Tensor:
+    """Return per-head softmax weights over joints, shaped [batch, heads, joints]."""
+    query, keys = self._encode(sequence)
+    q, k, _ = self._project_qkv(query, keys)
+    scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+    return torch.softmax(scores, dim=-1).squeeze(2)
+
+  def _encode(self, sequence: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     query = self.query_encoder(sequence[:, -1])
     joint_pos, joint_action = self.slicer(sequence[:, :-1])
     keys = self.joint_encoder(joint_pos, joint_action)
-    attended, weights = self.attention(
-      query.unsqueeze(1),
-      keys,
-      keys,
-      need_weights=True,
-      average_attn_weights=False,
+    return query, keys
+
+  def _project_qkv(
+    self, query: torch.Tensor, keys: torch.Tensor
+  ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    batch, num_joints, _ = keys.shape
+    q = self.q_proj(query).view(batch, 1, self.num_heads, self.head_dim).transpose(1, 2)
+    k = (
+      self.k_proj(keys)
+      .view(batch, num_joints, self.num_heads, self.head_dim)
+      .transpose(1, 2)
     )
-    if weights.ndim != 4:
-      raise RuntimeError(
-        "Expected per-head attention weights of shape "
-        f"[batch, heads, 1, joints], received {tuple(weights.shape)}."
-      )
-    latent = torch.cat((query, attended.squeeze(1)), dim=-1)
-    return latent, weights.squeeze(2)
+    v = (
+      self.v_proj(keys)
+      .view(batch, num_joints, self.num_heads, self.head_dim)
+      .transpose(1, 2)
+    )
+    return q, k, v
 
 
 class ResidualCrossAttnModel(MLPModel):
@@ -486,8 +516,11 @@ class ResidualCrossAttnModel(MLPModel):
     hidden_state: HiddenState = None,
   ) -> torch.Tensor:
     """Return current-frame attention over observed joints, shaped [batch, heads, joints]."""
-    _, weights = self._cross_attend(obs, masks, hidden_state)
-    return weights
+    del masks, hidden_state
+    sequence = torch.cat(
+      [cast(torch.Tensor, obs[group]) for group in self.obs_groups], dim=-1
+    )
+    return self.cross_attention.attention_weights(self.obs_normalizer(sequence))
 
   def get_latent(
     self,
@@ -495,8 +528,11 @@ class ResidualCrossAttnModel(MLPModel):
     masks: torch.Tensor | None = None,
     hidden_state: HiddenState = None,
   ) -> torch.Tensor:
-    latent, _ = self._cross_attend(obs, masks, hidden_state)
-    return latent
+    del masks, hidden_state
+    sequence = torch.cat(
+      [cast(torch.Tensor, obs[group]) for group in self.obs_groups], dim=-1
+    )
+    return self.cross_attention(self.obs_normalizer(sequence))
 
   def update_normalization(self, obs: TensorDict) -> None:
     if self.obs_normalization:
@@ -511,18 +547,6 @@ class ResidualCrossAttnModel(MLPModel):
 
   def as_onnx(self, verbose: bool = False) -> nn.Module:
     return _OnnxResidualCrossAttnModel(self, verbose)
-
-  def _cross_attend(
-    self,
-    obs: TensorDict,
-    masks: torch.Tensor | None,
-    hidden_state: HiddenState,
-  ) -> tuple[torch.Tensor, torch.Tensor]:
-    del masks, hidden_state
-    sequence = torch.cat(
-      [cast(torch.Tensor, obs[group]) for group in self.obs_groups], dim=-1
-    )
-    return self.cross_attention(self.obs_normalizer(sequence))
 
   def _get_obs_dim(
     self,
@@ -568,7 +592,7 @@ class _ResidualCrossAttnExportCore(nn.Module):
       self.deterministic_output = model.distribution.as_deterministic_output_module()
 
   def forward(self, observations: torch.Tensor) -> torch.Tensor:
-    latent, _ = self.cross_attention(self.obs_normalizer(observations))
+    latent = self.cross_attention(self.obs_normalizer(observations))
     return self.deterministic_output(self.mlp(latent))
 
 
