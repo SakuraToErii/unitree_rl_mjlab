@@ -302,3 +302,12 @@ def unitree_g1_flat_partial_phase1_xattn_env_cfg(
 ) -> ManagerBasedRlEnvCfg:
   """IMU-kept ankle-blind actor with five-frame history for cross-attention."""
   return enable_mha_history(unitree_g1_flat_partial_phase1_env_cfg(play=play))
+
+
+def unitree_g1_flat_partial_phase1_xattn_no_curriculum_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Match the Phase1 MHA observation and fixed command range for XAttn."""
+  cfg = unitree_g1_flat_partial_phase1_xattn_env_cfg(play=play)
+  cfg.curriculum = {}
+  return cfg

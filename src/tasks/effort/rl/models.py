@@ -267,7 +267,7 @@ def _resolve_cross_attn_layout(
   joint_pos_names: object,
   action_names: object,
 ) -> tuple[dict[str, slice], tuple[str, ...], torch.Tensor, int]:
-  """Map a flat actor frame onto joint-position and action slices."""
+  """Map a flat actor frame onto joint, command, and IMU slices."""
   if not term_dims or not joint_pos_names or not action_names:
     raise ValueError("ResidualCrossAttnModel requires an actor observation layout.")
 
@@ -284,7 +284,7 @@ def _resolve_cross_attn_layout(
     slices[term_name] = slice(offset, offset + term_width)
     offset += term_width
 
-  for required in ("joint_pos", "actions"):
+  for required in ("joint_pos", "actions", "command"):
     if required not in slices:
       raise ValueError(f"Actor layout is missing the '{required}' term.")
 
@@ -352,6 +352,28 @@ class _JointHistoryEncoder(_FrameEncoder):
     return super().forward(token)
 
 
+class _VectorHistoryEncoder(_FrameEncoder):
+  """Project one history vector of any width to the shared token dimension."""
+
+  def __init__(
+    self,
+    history_span: int,
+    width: int,
+    embedding_dim: int,
+    hidden_dim: int,
+    activation: str,
+  ) -> None:
+    super().__init__(history_span * width + embedding_dim, hidden_dim, activation)
+    self.embedding = nn.Parameter(torch.empty(embedding_dim))
+    nn.init.normal_(self.embedding, std=0.02)
+
+  def forward(self, history: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
+    flat = history.flatten(start_dim=1)
+    identity = self.embedding.expand(flat.shape[0], -1)
+    encoded = super().forward(torch.cat((flat, identity), dim=-1))
+    return encoded.unsqueeze(1)
+
+
 class _JointHistorySlicer(nn.Module):
   """Cut past frames into per-joint position and same-named action history."""
 
@@ -375,7 +397,7 @@ class _JointHistorySlicer(nn.Module):
 
 
 class _JointCrossAttention(nn.Module):
-  """Attend from the current frame to each observed joint's history."""
+  """Attend from the current frame to joint history, command, and IMU."""
 
   def __init__(
     self,
@@ -389,6 +411,8 @@ class _JointCrossAttention(nn.Module):
     joint_pos_slice: slice,
     action_slice: slice,
     action_index: torch.Tensor,
+    command_slice: slice,
+    imu_slices: tuple[slice, ...],
   ) -> None:
     super().__init__()
     if hidden_dim % num_heads != 0:
@@ -400,6 +424,26 @@ class _JointCrossAttention(nn.Module):
     self.slicer = _JointHistorySlicer(joint_pos_slice, action_slice, action_index)
     self.joint_encoder = _JointHistoryEncoder(
       history_span, num_joints, joint_embedding_dim, hidden_dim, activation
+    )
+    self.command_start = int(command_slice.start)
+    self.command_end = int(command_slice.stop)
+    self.command_encoder = _VectorHistoryEncoder(
+      history_span,
+      self.command_end - self.command_start,
+      joint_embedding_dim,
+      hidden_dim,
+      activation,
+    )
+    self.imu_bounds = tuple(
+      (int(item.start), int(item.stop)) for item in imu_slices
+    )
+    imu_width = sum(stop - start for start, stop in self.imu_bounds)
+    self.imu_encoder = (
+      _VectorHistoryEncoder(
+        history_span, imu_width, joint_embedding_dim, hidden_dim, activation
+      )
+      if imu_width
+      else None
     )
     self.q_proj = nn.Linear(hidden_dim, hidden_dim)
     self.k_proj = nn.Linear(hidden_dim, hidden_dim)
@@ -417,7 +461,7 @@ class _JointCrossAttention(nn.Module):
     return torch.cat((query, attended), dim=-1)
 
   def attention_weights(self, sequence: torch.Tensor) -> torch.Tensor:
-    """Return per-head softmax weights over joints, shaped [batch, heads, joints]."""
+    """Return per-head softmax weights over tokens, shaped [batch, heads, tokens]."""
     query, keys = self._encode(sequence)
     q, k, _ = self._project_qkv(query, keys)
     scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
@@ -425,23 +469,31 @@ class _JointCrossAttention(nn.Module):
 
   def _encode(self, sequence: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     query = self.query_encoder(sequence[:, -1])
-    joint_pos, joint_action = self.slicer(sequence[:, :-1])
-    keys = self.joint_encoder(joint_pos, joint_action)
-    return query, keys
+    past = sequence[:, :-1]
+    joint_pos, joint_action = self.slicer(past)
+    tokens = [self.joint_encoder(joint_pos, joint_action)]
+    command = past[..., self.command_start : self.command_end]
+    tokens.append(self.command_encoder(command))
+    if self.imu_encoder is not None:
+      imu = torch.cat(
+        [past[..., start:stop] for start, stop in self.imu_bounds], dim=-1
+      )
+      tokens.append(self.imu_encoder(imu))
+    return query, torch.cat(tokens, dim=1)
 
   def _project_qkv(
     self, query: torch.Tensor, keys: torch.Tensor
   ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    batch, num_joints, _ = keys.shape
+    batch, num_tokens, _ = keys.shape
     q = self.q_proj(query).view(batch, 1, self.num_heads, self.head_dim).transpose(1, 2)
     k = (
       self.k_proj(keys)
-      .view(batch, num_joints, self.num_heads, self.head_dim)
+      .view(batch, num_tokens, self.num_heads, self.head_dim)
       .transpose(1, 2)
     )
     v = (
       self.v_proj(keys)
-      .view(batch, num_joints, self.num_heads, self.head_dim)
+      .view(batch, num_tokens, self.num_heads, self.head_dim)
       .transpose(1, 2)
     )
     return q, k, v
@@ -485,6 +537,14 @@ class ResidualCrossAttnModel(MLPModel):
     self.encoder_hidden_dim = encoder_hidden_dim
     self.feature_dim = feature_dim
     self.joint_names = observed_joints
+    imu_slices = tuple(
+      slices[name]
+      for name in ("base_ang_vel", "projected_gravity")
+      if name in slices
+    )
+    self.token_names = observed_joints + ("command",) + (
+      ("imu",) if imu_slices else ()
+    )
     super().__init__(
       obs=obs,
       obs_groups=obs_groups,
@@ -506,6 +566,8 @@ class ResidualCrossAttnModel(MLPModel):
       joint_pos_slice=slices["joint_pos"],
       action_slice=slices["actions"],
       action_index=action_index,
+      command_slice=slices["command"],
+      imu_slices=imu_slices,
     )
     _initialize_output_layer(self.mlp, output_gain)
 
@@ -515,7 +577,7 @@ class ResidualCrossAttnModel(MLPModel):
     masks: torch.Tensor | None = None,
     hidden_state: HiddenState = None,
   ) -> torch.Tensor:
-    """Return current-frame attention over observed joints, shaped [batch, heads, joints]."""
+    """Return current-frame attention over tokens, shaped [batch, heads, tokens]."""
     del masks, hidden_state
     sequence = torch.cat(
       [cast(torch.Tensor, obs[group]) for group in self.obs_groups], dim=-1

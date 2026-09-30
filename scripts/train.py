@@ -31,6 +31,8 @@ class TrainConfig:
   video_length: int = 200
   video_interval: int = 2000
   enable_nan_guard: bool = False
+  allow_tf32: bool = True
+  """Allow reduced-precision TF32 matmuls on CUDA; disable for strict FP32."""
   log_root: str = "logs/rsl_rl"
   """Root directory under which experiment logs are written."""
   torchrunx_log_dir: str | None = None
@@ -60,7 +62,7 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
     # Set seed to have diversity in different processes.
     seed = cfg.agent.seed + rank
 
-  configure_torch_backends()
+  configure_torch_backends(allow_tf32=cfg.allow_tf32)
 
   cfg.agent.seed = seed
   cfg.env.seed = seed

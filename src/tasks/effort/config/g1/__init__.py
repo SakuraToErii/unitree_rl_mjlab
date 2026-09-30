@@ -11,6 +11,7 @@ from .env_cfgs import (
   unitree_g1_flat_partial_phase1_env_cfg,
   unitree_g1_flat_partial_phase1_mha_env_cfg,
   unitree_g1_flat_partial_phase1_xattn_env_cfg,
+  unitree_g1_flat_partial_phase1_xattn_no_curriculum_env_cfg,
   unitree_g1_flat_partial_xattn_env_cfg,
   unitree_g1_rough_env_cfg,
   unitree_g1_rough_mha_env_cfg,
@@ -109,5 +110,22 @@ register_mjlab_task(
   env_cfg=_phase1_xattn_env_cfg,
   play_env_cfg=unitree_g1_flat_partial_phase1_xattn_env_cfg(play=True),
   rl_cfg=unitree_g1_ppo_cross_attn_runner_cfg(_phase1_xattn_env_cfg),
+  runner_cls=EffortOnPolicyRunner,
+)
+
+_phase1_xattn_no_curriculum_env_cfg = (
+  unitree_g1_flat_partial_phase1_xattn_no_curriculum_env_cfg()
+)
+_phase1_xattn_fp32_rl_cfg = unitree_g1_ppo_cross_attn_runner_cfg(
+  _phase1_xattn_no_curriculum_env_cfg, use_bf16_autocast=False
+)
+_phase1_xattn_fp32_rl_cfg.experiment_name = "g1_effort_xattn_fp32_no_curriculum"
+register_mjlab_task(
+  task_id="Unitree-G1-Effort-Flat-Partial-Phase1-XAttn-NoCurriculum-FP32",
+  env_cfg=_phase1_xattn_no_curriculum_env_cfg,
+  play_env_cfg=unitree_g1_flat_partial_phase1_xattn_no_curriculum_env_cfg(
+    play=True
+  ),
+  rl_cfg=_phase1_xattn_fp32_rl_cfg,
   runner_cls=EffortOnPolicyRunner,
 )
