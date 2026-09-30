@@ -47,6 +47,7 @@ from src.tasks.effort.config.g1.env_cfgs import (
   unitree_g1_rough_mha_env_cfg,
 )
 from src.tasks.effort.config.g1.rl_cfg import (
+  unitree_g1_ppo_cross_attn_runner_cfg,
   unitree_g1_ppo_mha_runner_cfg,
   unitree_g1_ppo_runner_cfg,
 )
@@ -807,37 +808,86 @@ class EffortTaskTest(unittest.TestCase):
     self.assertEqual(expected.shape, (batch_size, output_dim))
     torch.testing.assert_close(exported, expected)
 
-  def test_cross_attention_uses_command_history_and_ignores_unobserved_actions(
-    self,
-  ) -> None:
+  def test_cross_attention_keeps_a_token_for_every_controlled_joint(self) -> None:
+    model, obs = _toy_cross_attn()
+    weights = model.attention_weights(obs)
+
+    self.assertEqual(model.joint_names, ("knee", "hip", "ankle"))
+    self.assertEqual(model.token_names, ("knee", "hip", "ankle"))
+    self.assertEqual(tuple(weights.shape), (2, 2, 3, 3))
+    torch.testing.assert_close(weights.sum(dim=-1), torch.ones(2, 2, 3))
+    torch.testing.assert_close(
+      model.cross_attention.missing, torch.tensor([0.0, 0.0, 1.0])
+    )
+    # Current-frame embedding plus one flattened output slot per joint.
+    self.assertEqual(tuple(model.get_latent(obs).shape), (2, 8 + 3 * 2))
+
+  def test_joints_without_position_read_zero_and_keep_their_torque(self) -> None:
+    model, obs = _toy_cross_attn()
+    positions, torques = model.cross_attention.slicer(obs["actor"])
+
+    torch.testing.assert_close(positions[..., 0], obs["actor"][..., 3])
+    torch.testing.assert_close(positions[..., 1], obs["actor"][..., 4])
+    torch.testing.assert_close(positions[..., 2], torch.zeros(2, 5))
+    torch.testing.assert_close(torques, obs["actor"][..., 5:8])
+
+  def test_positions_follow_the_action_order_of_the_joints(self) -> None:
+    obs = TensorDict({"actor": torch.randn(2, 5, 8)}, batch_size=[2])
+    model = ResidualCrossAttnModel(
+      obs,
+      {"actor": ["actor"]},
+      "actor",
+      4,
+      hidden_dims=(16, 16),
+      obs_normalization=False,
+      num_heads=2,
+      encoder_hidden_dim=8,
+      joint_embedding_dim=4,
+      joint_output_dim=2,
+      term_dims=(("command", 3), ("joint_pos", 2), ("actions", 3)),
+      joint_pos_names=("hip", "knee"),
+      action_names=("knee", "hip", "ankle"),
+    )
+    positions, _ = model.cross_attention.slicer(obs["actor"])
+
+    torch.testing.assert_close(positions[..., 0], obs["actor"][..., 4])
+    torch.testing.assert_close(positions[..., 1], obs["actor"][..., 3])
+    torch.testing.assert_close(positions[..., 2], torch.zeros(2, 5))
+
+  def test_past_torque_of_every_joint_reaches_the_actor(self) -> None:
     model, obs = _toy_cross_attn()
     actions = model(obs)
     weights = model.attention_weights(obs)
 
+    # Columns 5-7 are the knee, hip, and ankle torques; the ankle has no position.
+    for column in (5, 6, 7):
+      changed = _clone_actor_obs(obs)
+      changed["actor"][:, :-1, column] += 1.5
+      self.assertFalse(torch.allclose(model(changed), actions))
+      self.assertFalse(torch.allclose(model.attention_weights(changed), weights))
+
+  def test_command_reaches_the_actor_only_through_the_current_frame(self) -> None:
+    model, obs = _toy_cross_attn()
+    actions = model(obs)
+
     past_command = _clone_actor_obs(obs)
     past_command["actor"][:, :-1, 0:3] += 1.5
-    self.assertFalse(torch.allclose(model(past_command), actions))
-    self.assertFalse(torch.allclose(model.attention_weights(past_command), weights))
+    torch.testing.assert_close(model(past_command), actions)
 
-    past_ankle_action = _clone_actor_obs(obs)
-    past_ankle_action["actor"][:, :-1, 7] += 1.5
-    torch.testing.assert_close(model(past_ankle_action), actions)
-    torch.testing.assert_close(
-      model.attention_weights(past_ankle_action), weights
-    )
+    current_command = _clone_actor_obs(obs)
+    current_command["actor"][:, -1, 0:3] += 1.5
+    self.assertFalse(torch.allclose(model(current_command), actions))
 
   def test_cross_attention_keeps_past_joint_samples_in_time_order(self) -> None:
     model, obs = _toy_cross_attn()
     obs["actor"].zero_()
-    obs["actor"][:, 0, 3] = 1
-    obs["actor"][:, 1, 3] = 2
-    obs["actor"][:, 2, 3] = 3
-    obs["actor"][:, 3, 3] = 4
+    for frame, value in enumerate((1.0, 2.0, 3.0, 4.0)):
+      obs["actor"][:, frame, 3] = value
     ordered = model.attention_weights(obs)
 
     reversed_history = _clone_actor_obs(obs)
-    reversed_history["actor"][:, 0, 3] = 4
-    reversed_history["actor"][:, 3, 3] = 1
+    reversed_history["actor"][:, 0, 3] = 4.0
+    reversed_history["actor"][:, 3, 3] = 1.0
     self.assertFalse(
       torch.allclose(model.attention_weights(reversed_history), ordered)
     )
@@ -846,28 +896,32 @@ class EffortTaskTest(unittest.TestCase):
     model, obs = _toy_cross_attn()
     obs["actor"].zero_()
     for frame, value in enumerate((1.0, 2.0, 3.0, 4.0)):
-      obs["actor"][:, frame, 3] = value
-      obs["actor"][:, frame, 4] = value
-      obs["actor"][:, frame, 5] = value
-      obs["actor"][:, frame, 6] = value
+      obs["actor"][:, frame, 3:8] = value
 
     weights = model.attention_weights(obs)
     self.assertFalse(torch.allclose(weights[..., 0], weights[..., 1]))
 
-  def test_attention_weights_are_a_distribution_over_observed_joints(self) -> None:
+  def test_current_state_of_a_joint_only_moves_its_own_query(self) -> None:
     model, obs = _toy_cross_attn()
     weights = model.attention_weights(obs)
 
-    self.assertEqual(model.joint_names, ("knee", "hip"))
-    self.assertEqual(model.token_names, ("knee", "hip", "command"))
-    self.assertEqual(tuple(weights.shape), (2, 2, 3))
-    torch.testing.assert_close(weights.sum(dim=-1), torch.ones(2, 2))
+    # Keys come from past frames, so the current frame can only move queries.
+    # Columns: 3 knee position, 4 hip position, 5-7 knee, hip, ankle torque.
+    for column, joint in ((3, 0), (5, 0), (4, 1), (6, 1), (7, 2)):
+      changed = _clone_actor_obs(obs)
+      changed["actor"][:, -1, column] += 1.5
+      moved = model.attention_weights(changed)
+      others = [index for index in range(3) if index != joint]
+      self.assertFalse(torch.allclose(moved[:, :, joint], weights[:, :, joint]))
+      torch.testing.assert_close(moved[:, :, others], weights[:, :, others])
 
-  def test_imu_history_is_one_token_with_its_own_width(self) -> None:
+  def test_imu_history_is_one_token_and_current_imu_reaches_every_query(
+    self,
+  ) -> None:
     torch.manual_seed(0)
     batch_size = 2
     obs = TensorDict(
-      {"actor": torch.zeros(batch_size, 5, 14)}, batch_size=[batch_size]
+      {"actor": torch.randn(batch_size, 5, 14)}, batch_size=[batch_size]
     )
     model = ResidualCrossAttnModel(
       obs,
@@ -880,6 +934,7 @@ class EffortTaskTest(unittest.TestCase):
       num_heads=2,
       encoder_hidden_dim=8,
       joint_embedding_dim=4,
+      joint_output_dim=2,
       term_dims=(
         ("base_ang_vel", 3),
         ("projected_gravity", 3),
@@ -891,45 +946,20 @@ class EffortTaskTest(unittest.TestCase):
       action_names=("knee", "hip", "ankle"),
     )
     model.eval()
-    self.assertEqual(model.token_names, ("knee", "hip", "command", "imu"))
-    joint_width = model.cross_attention.joint_encoder.projection.in_features
-    command_width = model.cross_attention.command_encoder.projection.in_features
-    imu_width = model.cross_attention.imu_encoder.projection.in_features
-    self.assertEqual(joint_width, 2 * 4 + 4)
-    self.assertEqual(command_width, 4 * 3 + 4)
-    self.assertEqual(imu_width, 4 * 6 + 4)
-    self.assertEqual(
-      model.cross_attention.joint_encoder.projection.out_features,
-      model.cross_attention.command_encoder.projection.out_features,
-    )
-    self.assertEqual(
-      model.cross_attention.command_encoder.projection.out_features,
-      model.cross_attention.imu_encoder.projection.out_features,
-    )
+    self.assertEqual(model.token_names, ("knee", "hip", "ankle", "imu"))
+    attention = model.cross_attention
+    self.assertEqual(attention.history_encoder[0].in_features, 2 * 4 + 4 + 1)
+    self.assertEqual(attention.imu_encoder[0].in_features, 4 * 6)
+    self.assertEqual(attention.context_encoder[0].in_features, 3 + 6)
 
     weights = model.attention_weights(obs)
-    self.assertEqual(tuple(weights.shape), (batch_size, 2, 4))
-    changed = _clone_actor_obs(obs)
-    changed["actor"][:, :-1, 0:6] += 1.5
-    self.assertFalse(torch.allclose(model.attention_weights(changed), weights))
-
-  def test_past_action_of_an_observed_joint_changes_attention(self) -> None:
-    model, obs = _toy_cross_attn()
-    obs["actor"].zero_()
-    baseline = model.attention_weights(obs)
-    changed = _clone_actor_obs(obs)
-    # command (3) then joint_pos (2); knee is the first action.
-    changed["actor"][:, :-1, 5] += 1.5
-    self.assertFalse(torch.allclose(model.attention_weights(changed), baseline))
-
-  def test_current_frame_reaches_actions_for_joints_without_history_tokens(
-    self,
-  ) -> None:
-    model, obs = _toy_cross_attn()
-    actions = model(obs)
-    current_ankle_action = _clone_actor_obs(obs)
-    current_ankle_action["actor"][:, -1, 7] += 1.5
-    self.assertFalse(torch.allclose(model(current_ankle_action), actions))
+    self.assertEqual(tuple(weights.shape), (batch_size, 2, 3, 4))
+    past_imu = _clone_actor_obs(obs)
+    past_imu["actor"][:, :-1, 0:6] += 1.5
+    self.assertFalse(torch.allclose(model.attention_weights(past_imu), weights))
+    current_imu = _clone_actor_obs(obs)
+    current_imu["actor"][:, -1, 0:6] += 1.5
+    self.assertFalse(torch.allclose(model.attention_weights(current_imu), weights))
 
   def test_cross_attention_export_matches_actions_and_centers_output(self) -> None:
     model, obs = _toy_cross_attn()
@@ -942,22 +972,27 @@ class EffortTaskTest(unittest.TestCase):
     )
     torch.testing.assert_close(model.as_onnx()(obs["actor"]), model(obs))
 
-  def test_cross_attn_runner_uses_bf16_autocast_ppo_only(self) -> None:
-    xattn = load_rl_cfg("Unitree-G1-Effort-Flat-Partial-XAttn")
-    self.assertEqual(
-      xattn.algorithm.class_name,
-      "src.tasks.effort.rl.bf16_autocast:Bf16AutocastPPO",
-    )
-    self.assertIs(
-      resolve_callable(xattn.algorithm.class_name), Bf16AutocastPPO
-    )
-    self.assertEqual(
-      load_rl_cfg("Unitree-G1-Effort-Flat-Partial").algorithm.class_name, "PPO"
-    )
+  def test_cross_attn_runner_defaults_to_fp32_and_can_opt_into_bf16(self) -> None:
+    for task_id in (
+      "Unitree-G1-Effort-Flat-Partial-XAttn",
+      "Unitree-G1-Effort-Flat-Partial-NoAnkle-XAttn",
+      "Unitree-G1-Effort-Flat-Partial-Phase1-XAttn",
+      "Unitree-G1-Effort-Flat-Partial-Phase1-XAttn-NoCurriculum-FP32",
+    ):
+      self.assertEqual(load_rl_cfg(task_id).algorithm.class_name, "PPO", task_id)
     self.assertEqual(
       load_rl_cfg("Unitree-G1-Effort-Flat-Partial-MHA").algorithm.class_name,
       "PPO",
     )
+
+    bf16 = unitree_g1_ppo_cross_attn_runner_cfg(
+      load_env_cfg("Unitree-G1-Effort-Flat-Partial-XAttn"), use_bf16_autocast=True
+    )
+    self.assertEqual(
+      bf16.algorithm.class_name,
+      "src.tasks.effort.rl.bf16_autocast:Bf16AutocastPPO",
+    )
+    self.assertIs(resolve_callable(bf16.algorithm.class_name), Bf16AutocastPPO)
 
   def test_bf16_autocast_wrapper_keeps_fp32_outputs_and_matches_on_cpu(
     self,
@@ -1117,6 +1152,8 @@ class EffortTaskTest(unittest.TestCase):
       self.assertEqual(rl_cfg.experiment_name, "g1_effort_xattn")
       self.assertEqual(rl_cfg.max_iterations, 10_000)
       self.assertEqual(rl_cfg.actor.joint_embedding_dim, 16)
+      self.assertEqual(rl_cfg.actor.encoder_hidden_dim, 128)
+      self.assertEqual(rl_cfg.actor.joint_output_dim, 32)
       self.assertEqual(
         tuple(tuple(item) for item in rl_cfg.actor.term_dims), term_dims
       )
@@ -1140,12 +1177,13 @@ class EffortTaskTest(unittest.TestCase):
     )
 
   def test_registered_cross_attn_actor_emits_effort_and_named_weights(self) -> None:
-    expected_tokens = {
-      "Unitree-G1-Effort-Flat-Partial-XAttn": 30,
-      "Unitree-G1-Effort-Flat-Partial-NoAnkle-XAttn": 26,
-      "Unitree-G1-Effort-Flat-Partial-Phase1-XAttn": 27,
+    all_joints = tuple(Entity(get_g1_effort_robot_cfg()).joint_names)
+    expected = {
+      "Unitree-G1-Effort-Flat-Partial-XAttn": (29, ()),
+      "Unitree-G1-Effort-Flat-Partial-NoAnkle-XAttn": (29, _G1_ANKLE_JOINTS),
+      "Unitree-G1-Effort-Flat-Partial-Phase1-XAttn": (30, _G1_ANKLE_JOINTS),
     }
-    for task_id, num_tokens in expected_tokens.items():
+    for task_id, (num_tokens, missing_joints) in expected.items():
       rl_cfg = load_rl_cfg(task_id)
       width = sum(int(dim) for _, dim in rl_cfg.actor.term_dims)
       batch_size = 2
@@ -1165,6 +1203,7 @@ class EffortTaskTest(unittest.TestCase):
         num_heads=rl_cfg.actor.num_heads,
         encoder_hidden_dim=rl_cfg.actor.encoder_hidden_dim,
         joint_embedding_dim=rl_cfg.actor.joint_embedding_dim,
+        joint_output_dim=rl_cfg.actor.joint_output_dim,
         term_dims=rl_cfg.actor.term_dims,
         joint_pos_names=rl_cfg.actor.joint_pos_names,
         action_names=rl_cfg.actor.action_names,
@@ -1173,36 +1212,37 @@ class EffortTaskTest(unittest.TestCase):
       actions = model(obs)
       weights = model.attention_weights(obs)
       self.assertEqual(tuple(actions.shape), (batch_size, 29))
-      self.assertEqual(tuple(weights.shape), (batch_size, 4, num_tokens))
-      self.assertEqual(tuple(model.joint_names), tuple(rl_cfg.actor.joint_pos_names))
-      self.assertEqual(model.token_names[: len(model.joint_names)], model.joint_names)
-      if "base_ang_vel" in dict(rl_cfg.actor.term_dims):
-        self.assertEqual(model.token_names[-2:], ("command", "imu"))
-      else:
-        self.assertEqual(model.token_names[-1:], ("command",))
+      self.assertEqual(tuple(weights.shape), (batch_size, 4, 29, num_tokens))
+      self.assertEqual(model.joint_names, all_joints)
+      self.assertEqual(model.token_names[:29], all_joints)
+      self.assertEqual(model.token_names[29:], ("imu",) if num_tokens > 29 else ())
+      flagged = tuple(
+        name
+        for name, flag in zip(model.joint_names, model.cross_attention.missing.tolist())
+        if flag
+      )
+      self.assertEqual(flagged, missing_joints)
       torch.testing.assert_close(
-        weights.sum(dim=-1), torch.ones(batch_size, 4), atol=1e-5, rtol=1e-5
+        weights.sum(dim=-1), torch.ones(batch_size, 4, 29), atol=1e-5, rtol=1e-5
       )
 
-  def test_joint_attention_plot_averages_heads_into_one_red_heatmap(self) -> None:
-    weights = torch.tensor([[0.2, 0.8], [0.0, 1.0]])
+  def test_joint_attention_plot_averages_batch_and_heads_into_a_heatmap(self) -> None:
+    weights = torch.tensor(
+      [[[0.2, 0.8], [0.6, 0.4]], [[0.0, 1.0], [0.2, 0.8]]]
+    )  # [heads, joints, tokens]
+    expected = torch.tensor([[0.1, 0.9], [0.4, 0.6]])
+    torch.testing.assert_close(mean_joint_attention(weights), expected)
     torch.testing.assert_close(
-      mean_joint_attention(weights), torch.tensor([0.1, 0.9])
-    )
-    batched = torch.stack(
-      (
-        torch.tensor([[0.2, 0.8], [0.0, 1.0]]),
-        torch.tensor([[0.2, 0.8], [0.0, 1.0]]),
-      )
-    )
-    torch.testing.assert_close(
-      mean_joint_attention(batched), torch.tensor([0.1, 0.9])
+      mean_joint_attention(torch.stack((weights, weights))), expected
     )
 
+    names = ("left_knee_joint", "right_knee_joint")
     with tempfile.TemporaryDirectory() as tmp:
       path = Path(tmp) / "attention.png"
-      plot_joint_attention(weights, ("left_knee_joint", "right_knee_joint"), path)
+      plot_joint_attention(weights, names, names, path)
       self.assertGreater(path.stat().st_size, 0)
+      with self.assertRaises(ValueError):
+        plot_joint_attention(weights, names[:1], names, path)
 
 
 def _clone_actor_obs(obs: TensorDict) -> TensorDict:
@@ -1212,7 +1252,7 @@ def _clone_actor_obs(obs: TensorDict) -> TensorDict:
 
 
 def _toy_cross_attn() -> tuple[ResidualCrossAttnModel, TensorDict]:
-  """Two observed joints plus an ankle action that has no position token.
+  """Three controlled joints, two of them with position encoders.
 
   Flat frame layout is command (3), joint_pos (knee, hip), actions
   (knee, hip, ankle). History length is 5, so the past axis is the first 4.
@@ -1233,12 +1273,14 @@ def _toy_cross_attn() -> tuple[ResidualCrossAttnModel, TensorDict]:
     num_heads=2,
     encoder_hidden_dim=8,
     joint_embedding_dim=4,
+    joint_output_dim=2,
     term_dims=(("command", 3), ("joint_pos", 2), ("actions", 3)),
     joint_pos_names=("knee", "hip"),
     action_names=("knee", "hip", "ankle"),
   )
   model.eval()
   return model, obs
+
 
 
 if __name__ == "__main__":

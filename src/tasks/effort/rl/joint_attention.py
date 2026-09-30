@@ -1,8 +1,4 @@
-"""Plot current-frame attention over per-joint history.
-
-AME draws one red intensity per key/value token (He et al., arXiv:2506.09588,
-Figure 7). Heads are averaged so each observed joint gets that one weight.
-"""
+"""Plot per-joint attention over joint and IMU history tokens."""
 
 from __future__ import annotations
 
@@ -14,39 +10,46 @@ import torch
 
 
 def mean_joint_attention(weights: torch.Tensor) -> torch.Tensor:
-  """Average a current-frame attention map down to one weight per joint."""
-  if weights.ndim == 2:
-    return weights.mean(dim=0)
+  """Average attention over batch and heads down to a [joints, tokens] map."""
   if weights.ndim == 3:
+    return weights.mean(dim=0)
+  if weights.ndim == 4:
     return weights.mean(dim=(0, 1))
   raise ValueError(
-    "Attention weights must be [heads, joints] or [batch, heads, joints], "
-    f"received {tuple(weights.shape)}."
+    "Attention weights must be [heads, joints, tokens] or "
+    f"[batch, heads, joints, tokens], received {tuple(weights.shape)}."
   )
 
 
 def plot_joint_attention(
   weights: torch.Tensor,
   joint_names: Sequence[str],
+  token_names: Sequence[str],
   output_path: str | Path,
 ) -> None:
-  """Write a one-row heatmap of attention from the current frame onto joints."""
+  """Write a heatmap with one row per query joint and one column per token."""
   values = mean_joint_attention(weights).detach().cpu()
-  names = tuple(joint_names)
-  if values.shape != (len(names),):
+  rows = tuple(joint_names)
+  columns = tuple(token_names)
+  if values.shape != (len(rows), len(columns)):
     raise ValueError(
-      f"Expected one weight for each of {len(names)} joints, received {tuple(values.shape)}."
+      f"Expected a {len(rows)} x {len(columns)} attention map, "
+      f"received {tuple(values.shape)}."
     )
 
-  row = values.numpy()[None, :]
   peak = float(values.max()) if values.numel() else 1.0
-  fig, ax = plt.subplots(figsize=(max(8.0, 0.38 * len(names)), 2.6))
-  image = ax.imshow(row, cmap="Reds", aspect="auto", vmin=0.0, vmax=max(peak, 1.0e-8))
-  ax.set_yticks([0])
-  ax.set_yticklabels(["current frame"])
-  ax.set_xticks(range(len(names)))
-  ax.set_xticklabels(names, rotation=90, fontsize=8)
-  ax.set_xlabel("joint history")
+  fig, ax = plt.subplots(
+    figsize=(max(8.0, 0.38 * len(columns)), max(4.0, 0.3 * len(rows)))
+  )
+  image = ax.imshow(
+    values.numpy(), cmap="Reds", aspect="auto", vmin=0.0, vmax=max(peak, 1.0e-8)
+  )
+  ax.set_yticks(range(len(rows)))
+  ax.set_yticklabels(rows, fontsize=8)
+  ax.set_xticks(range(len(columns)))
+  ax.set_xticklabels(columns, rotation=90, fontsize=8)
+  ax.set_xlabel("history token")
+  ax.set_ylabel("query joint")
   fig.colorbar(image, ax=ax, label="attention")
   fig.savefig(output_path, bbox_inches="tight")
   plt.close(fig)

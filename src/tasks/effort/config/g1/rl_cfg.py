@@ -134,7 +134,7 @@ def g1_actor_cross_attn_layout(
 def unitree_g1_ppo_cross_attn_runner_cfg(
   env_cfg: ManagerBasedRlEnvCfg,
   *,
-  use_bf16_autocast: bool = True,
+  use_bf16_autocast: bool = False,
 ) -> RslRlOnPolicyRunnerCfg:
   """Create residual-effort cross-attention PPO runner configuration for Unitree G1."""
   term_dims, joint_pos_names, action_names = g1_actor_cross_attn_layout(env_cfg)
