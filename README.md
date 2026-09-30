@@ -29,6 +29,10 @@ Mjlab 结合了 [Isaac Lab](https://github.com/isaac-sim/IsaacLab) 的成熟高�
 
 ## 🛠️ 使用指南
 
+0-PD effort 任务名称显式包含 Actor 观测、历史编码器、课程和归一化配置。
+名称字段和旧名称迁移表见 [effort_task_names.md](doc/effort_task_names.md)。
+逐关节交叉注意力训练示例见 [train_effort_joint_xattn.sh](train_effort_joint_xattn.sh)。
+
 ### 1. 速度跟踪训练
 
 运行以下命令进行速度跟踪训练：
@@ -210,4 +214,3 @@ cd deploy/robots/g1/build
 - [rsl_rl](https://github.com/leggedrobotics/rsl_rl.git): 强化学习算法实现。
 - [mujoco_warp](https://github.com/google-deepmind/mujoco_warp.git): 提供 GPU 加速渲染与仿真接口。
 - [mujoco](https://github.com/google-deepmind/mujoco.git): 提供强大仿真功能。
-
