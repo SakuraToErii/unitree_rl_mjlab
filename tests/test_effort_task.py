@@ -66,14 +66,14 @@ from src.tasks.effort.rl.runner import get_effort_metadata
 from src.tasks.effort.zero_pd import EFFORT_ACTION_SCALE_FRACTION
 
 G1_EFFORT_TASK_IDS = (
-  "Unitree-G1-Effort-Rough",
-  "Unitree-G1-Effort-Flat",
-  "Unitree-G1-Effort-Flat-Partial",
-  "Unitree-G1-Effort-Flat-Partial-Phase1",
-  "Unitree-G1-Effort-Flat-Partial-MHA",
-  "Unitree-G1-Effort-Flat-Partial-Phase1-MHA",
-  "Unitree-G1-Effort-Rough-MHA",
-  "Unitree-G1-Effort-Flat-MHA",
+  "Unitree-G1-Effort-0PD-Rough-IMU-JPos-JVel-Phase-HeightScan-H5-MLP-CmdCurr-TerrainCurr-ObsNorm",
+  "Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-CmdCurr-ObsNorm",
+  "Unitree-G1-Effort-0PD-Flat-NoIMU-JPos-NoJVel-H5-MLP-CmdCurr-ObsNorm",
+  "Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-MLP-CmdCurr-ObsNorm",
+  "Unitree-G1-Effort-0PD-Flat-NoIMU-JPos-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm",
+  "Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm",
+  "Unitree-G1-Effort-0PD-Rough-IMU-JPos-JVel-Phase-HeightScan-H5-TimeMHA-CmdCurr-TerrainCurr-ObsNorm",
+  "Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-TimeMHA-CmdCurr-ObsNorm",
 )
 
 _G1_ANKLE_JOINTS = (
@@ -85,14 +85,14 @@ _G1_ANKLE_JOINTS = (
 
 ALL_EFFORT_TASK_IDS = (
   *G1_EFFORT_TASK_IDS,
-  "Unitree-G1-23Dof-Effort-Rough",
-  "Unitree-G1-23Dof-Effort-Flat",
-  "Unitree-G1-23Dof-Effort-Rough-MHA",
-  "Unitree-G1-23Dof-Effort-Flat-MHA",
-  "Unitree-Go2-Effort-Rough",
-  "Unitree-Go2-Effort-Flat",
-  "Unitree-Go2-Effort-Rough-MHA",
-  "Unitree-Go2-Effort-Flat-MHA",
+  "Unitree-G1-23Dof-Effort-0PD-Rough-IMU-JPos-JVel-Phase-HeightScan-H5-MLP-CmdCurr-TerrainCurr-ObsNorm",
+  "Unitree-G1-23Dof-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-CmdCurr-ObsNorm",
+  "Unitree-G1-23Dof-Effort-0PD-Rough-IMU-JPos-JVel-Phase-HeightScan-H5-TimeMHA-CmdCurr-TerrainCurr-ObsNorm",
+  "Unitree-G1-23Dof-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-TimeMHA-CmdCurr-ObsNorm",
+  "Unitree-Go2-Effort-0PD-Rough-IMU-JPos-JVel-Phase-HeightScan-H5-MLP-CmdCurr-TerrainCurr-ObsNorm",
+  "Unitree-Go2-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-CmdCurr-ObsNorm",
+  "Unitree-Go2-Effort-0PD-Rough-IMU-JPos-JVel-Phase-HeightScan-H5-TimeMHA-CmdCurr-TerrainCurr-ObsNorm",
+  "Unitree-Go2-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-TimeMHA-CmdCurr-ObsNorm",
 )
 
 VELOCITY_TASK_IDS = (
@@ -249,7 +249,7 @@ class EffortTaskTest(unittest.TestCase):
     torch.testing.assert_close(action._processed_actions[0], expected_y1)
 
   def test_effort_export_metadata_uses_torque_action_contract(self) -> None:
-    env = ManagerBasedRlEnv(load_env_cfg("Unitree-G1-Effort-Flat"), device="cpu")
+    env = ManagerBasedRlEnv(load_env_cfg("Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-CmdCurr-ObsNorm"), device="cpu")
     try:
       with self.assertRaises(KeyError):
         get_base_metadata(env, "test-effort")
@@ -308,7 +308,7 @@ class EffortTaskTest(unittest.TestCase):
       env.close()
 
   def test_g1_effort_rewards_use_walkable_pose_split(self) -> None:
-    cfg = load_env_cfg("Unitree-G1-Effort-Flat")
+    cfg = load_env_cfg("Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-CmdCurr-ObsNorm")
 
     self.assertNotIn("pose", cfg.rewards)
     self.assertIs(cfg.rewards["stand_still"].func, mdp.stand_still)
@@ -366,8 +366,8 @@ class EffortTaskTest(unittest.TestCase):
     self.assertEqual(cfg.rewards["feet_air_time"].params["command_name"], "twist")
 
   def test_other_effort_variants_configure_new_rewards(self) -> None:
-    g1_23dof_cfg = load_env_cfg("Unitree-G1-23Dof-Effort-Flat")
-    go2_cfg = load_env_cfg("Unitree-Go2-Effort-Flat")
+    g1_23dof_cfg = load_env_cfg("Unitree-G1-23Dof-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-CmdCurr-ObsNorm")
+    go2_cfg = load_env_cfg("Unitree-Go2-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-CmdCurr-ObsNorm")
 
     for cfg in (g1_23dof_cfg, go2_cfg):
       self.assertNotIn("pose", cfg.rewards)
@@ -543,7 +543,7 @@ class EffortTaskTest(unittest.TestCase):
       self.assertTrue(mha_cfg.observations["critic"].flatten_history_dim)
 
   def test_flat_partial_strips_actor_and_keeps_privileged_critic(self) -> None:
-    cfg = load_env_cfg("Unitree-G1-Effort-Flat-Partial")
+    cfg = load_env_cfg("Unitree-G1-Effort-0PD-Flat-NoIMU-JPos-NoJVel-H5-MLP-CmdCurr-ObsNorm")
     play_cfg = unitree_g1_flat_partial_env_cfg(play=True)
 
     self.assertEqual(
@@ -571,22 +571,22 @@ class EffortTaskTest(unittest.TestCase):
     self.assertEqual(cfg.observations["actor"].history_length, 5)
     self.assertTrue(cfg.observations["actor"].flatten_history_dim)
 
-    mha_cfg = load_env_cfg("Unitree-G1-Effort-Flat-Partial-MHA")
+    mha_cfg = load_env_cfg("Unitree-G1-Effort-0PD-Flat-NoIMU-JPos-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm")
     self.assertEqual(
       set(mha_cfg.observations["actor"].terms),
       {"joint_pos", "command", "actions"},
     )
     self.assertFalse(mha_cfg.observations["actor"].flatten_history_dim)
     self.assertTrue(
-      load_rl_cfg("Unitree-G1-Effort-Flat-Partial-MHA").actor.class_name.endswith(
+      load_rl_cfg("Unitree-G1-Effort-0PD-Flat-NoIMU-JPos-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm").actor.class_name.endswith(
         ":ResidualMhaModel"
       )
     )
 
   def test_flat_partial_phase1_drops_actor_ankle_encoders_only(self) -> None:
-    cfg = load_env_cfg("Unitree-G1-Effort-Flat-Partial-Phase1")
+    cfg = load_env_cfg("Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-MLP-CmdCurr-ObsNorm")
     play_cfg = unitree_g1_flat_partial_phase1_env_cfg(play=True)
-    mha_cfg = load_env_cfg("Unitree-G1-Effort-Flat-Partial-Phase1-MHA")
+    mha_cfg = load_env_cfg("Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm")
 
     self.assertEqual(
       set(cfg.observations["actor"].terms),
@@ -619,12 +619,12 @@ class EffortTaskTest(unittest.TestCase):
     )
     self.assertFalse(mha_cfg.observations["actor"].flatten_history_dim)
     self.assertTrue(
-      load_rl_cfg("Unitree-G1-Effort-Flat-Partial-Phase1").actor.class_name.endswith(
+      load_rl_cfg("Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-MLP-CmdCurr-ObsNorm").actor.class_name.endswith(
         ":ResidualMlpModel"
       )
     )
     self.assertTrue(
-      load_rl_cfg("Unitree-G1-Effort-Flat-Partial-Phase1-MHA").actor.class_name.endswith(
+      load_rl_cfg("Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm").actor.class_name.endswith(
         ":ResidualMhaModel"
       )
     )

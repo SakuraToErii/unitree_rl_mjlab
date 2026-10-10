@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>G1 Time-MHA Actor · main</title>
+<style>
+:root{
+  --sans:"IBM Plex Sans","Noto Sans SC",system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,"Noto Sans Mono CJK SC","Noto Sans SC","Microsoft YaHei",monospace;
+  --bg:#F3F5F8;--surface:#FFFFFF;--surface-2:#EBEEF3;--fg:#12171F;--fg-2:#414B59;--fg-3:#566172;--line:#CDD4DE;--line-2:#7C8A9E;--obs:#2F6DB5;--obs-bg:#E3EDF9;--obs-bg2:#CADDF4;--obs-line:#4F84C0;--tok:#12796A;--tok-bg:#DDF2EE;--tok-line:#2F8F7F;--att:#AE470A;--att-bg:#FCE8D8;--att-line:#CC6B25;--head:#5F45B0;--head-bg:#E9E5F7;--head-line:#7C66C6;--miss:#B03A2E;--miss-bg:#F9E2DF;--miss-line:#C0574B;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0E1218;--surface:#161B23;--surface-2:#1F2632;--fg:#E8ECF2;--fg-2:#B4BDCA;--fg-3:#95A0B0;--line:#2C3542;--line-2:#6A7789;--obs:#86B4EF;--obs-bg:#16263B;--obs-bg2:#1E3757;--obs-line:#5A88C4;--tok:#62CDBA;--tok-bg:#12312D;--tok-line:#3E9585;--att:#F4A66A;--att-bg:#3B2515;--att-line:#B8702F;--head:#B6A8F2;--head-bg:#251F43;--head-line:#8371D2;--miss:#F28D80;--miss-bg:#3B1E1B;--miss-line:#BC5B4F;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0E1218;--surface:#161B23;--surface-2:#1F2632;--fg:#E8ECF2;--fg-2:#B4BDCA;--fg-3:#95A0B0;--line:#2C3542;--line-2:#6A7789;--obs:#86B4EF;--obs-bg:#16263B;--obs-bg2:#1E3757;--obs-line:#5A88C4;--tok:#62CDBA;--tok-bg:#12312D;--tok-line:#3E9585;--att:#F4A66A;--att-bg:#3B2515;--att-line:#B8702F;--head:#B6A8F2;--head-bg:#251F43;--head-line:#8371D2;--miss:#F28D80;--miss-bg:#3B1E1B;--miss-line:#BC5B4F;color-scheme:dark}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.65 var(--sans)}
+.page{max-width:1120px;margin:0 auto;padding-inline:16px;padding-block:36px 72px}
+.eyebrow{font:500 12.5px/1.4 var(--mono);color:var(--fg-3);margin:0;overflow-wrap:anywhere}
+h1{font:600 34px/1.15 var(--sans);letter-spacing:-.01em;margin:8px 0 12px}
+.lede{margin:0 0 24px;max-width:76ch;color:var(--fg-2);font-size:16px}
+.spec{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin:0;border-top:1px solid var(--line)}
+.spec div{padding:12px 16px 12px 0;border-bottom:1px solid var(--line);min-width:0}
+.spec dt{font:500 11.5px/1.3 var(--sans);letter-spacing:.04em;color:var(--fg-3);margin:0 0 4px}
+.spec dd{margin:0;font:500 15px/1.35 var(--mono);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+section{margin-top:52px}
+h2{font:600 21px/1.3 var(--sans);margin:0 0 8px;text-wrap:balance}
+h3{font:600 14px/1.4 var(--sans);margin:0}
+.note{margin:0 0 16px;color:var(--fg-2);max-width:78ch}
+figure{margin:0}
+.plate{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px;overflow-x:auto}
+.plate svg{display:block;width:100%;height:auto}
+figcaption{margin-top:10px;color:var(--fg-2);font-size:13.5px;max-width:82ch}
+.tw{overflow-x:auto;max-width:940px}
+.sub{margin:30px 0 8px}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th{font:500 11.5px/1.3 var(--sans);letter-spacing:.03em;color:var(--fg-3);text-align:left;padding:6px 10px;border-bottom:1px solid var(--line-2);white-space:nowrap}
+td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+td.num,th.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+td code{font:500 12.5px var(--mono);white-space:nowrap}
+tr.total td{font-weight:600;border-top:1px solid var(--line-2);border-bottom:0}
+tr.here td{background:var(--att-bg)}
+td.sharecol{width:190px;min-width:120px}
+.share{display:block;height:6px;border-radius:3px;background:var(--head);width:var(--w)}
+.jgs{display:grid;gap:10px;margin-top:20px}
+.jg{display:grid;grid-template-columns:52px minmax(0,1fr);gap:10px;align-items:baseline}
+.jg h3{color:var(--fg-3)}
+.jg ul{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
+.jg li{font:500 12px/1.2 var(--mono);padding:4px 8px;border:1px solid var(--line);border-radius:4px;background:var(--surface)}
+.jg li b{color:var(--fg-3);font-weight:500;margin-right:6px}
+.jg li.blind{background:var(--miss-bg);border-color:var(--miss-line)}
+.jg li i{font:500 11.5px var(--sans);color:var(--miss);margin-left:6px}
+.code dl{display:grid;grid-template-columns:minmax(0,280px) minmax(0,1fr);gap:8px 20px;margin:0}
+.code dt{font:500 12.5px/1.5 var(--mono);overflow-wrap:anywhere}
+.code dd{margin:0;color:var(--fg-2)}
+.ft{margin-top:56px;padding-top:16px;border-top:1px solid var(--line);color:var(--fg-3);font-size:12.5px}
+@media (max-width:640px){h1{font-size:28px}.code dl{grid-template-columns:minmax(0,1fr);gap:2px}.code dd{margin-bottom:10px}.jg{grid-template-columns:minmax(0,1fr);gap:4px}}
+.controls{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-top:16px;font-size:12px;color:var(--fg-3)}.controls button,.controls a{font:500 12px var(--sans);padding:6px 11px;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--fg-2);cursor:pointer;text-decoration:none}.controls button:hover,.controls a:hover{border-color:var(--head-line);color:var(--head)}
+svg text{fill:var(--fg);font-family:var(--sans)}
+.t-b{font:600 12.5px var(--sans)}
+.t-m{font:500 11px var(--mono);fill:var(--fg-2)}
+.t-n{font:400 11.5px var(--sans);fill:var(--fg-2)}
+.t-tag{font:500 11px var(--mono);fill:var(--fg-2);paint-order:stroke;stroke:var(--surface);stroke-width:3.5px;stroke-linejoin:round}
+.t-s{font:500 10px var(--mono);fill:var(--fg-2)}
+.t-sn{font:400 10.5px var(--sans);fill:var(--fg-2)}
+.t-band{font:600 11.5px var(--sans);letter-spacing:.04em;fill:var(--fg-3)}
+.t-op{font:400 18px var(--sans);fill:var(--fg-2)}
+.node{stroke-width:1}
+.node.plain{fill:var(--surface-2);stroke:var(--line-2)}
+.node.tok{fill:var(--tok-bg);stroke:var(--tok-line)}
+.node.att{fill:var(--att-bg);stroke:var(--att-line);stroke-width:1.4}
+.node.head{fill:var(--head-bg);stroke:var(--head-line)}
+.chip{fill:var(--surface);stroke:var(--line-2)}
+.frame{fill:none;stroke:var(--line-2);stroke-dasharray:2 4;stroke-width:1.2}
+.rule{stroke:var(--line);stroke-width:1}
+.lead{stroke:var(--line-2);stroke-width:1}
+.br{fill:none;stroke:var(--fg-3);stroke-width:1.2}
+.arr{fill:none;stroke:var(--fg-2);stroke-width:1.3;stroke-linecap:round}
+.arr.att{stroke:var(--att)}
+.arr.thin{stroke:var(--line-2)}
+.ah{fill:var(--fg-2)}
+.ah.att{fill:var(--att)}
+.plus{fill:var(--surface);stroke:var(--fg-2);stroke-width:1.3}
+.plus-l{stroke:var(--fg-2);stroke-width:1.3}
+.dot{fill:var(--fg-2)}
+.seg{stroke:var(--surface);stroke-width:1}
+.seg.s0{fill:var(--obs-bg)}
+.seg.s1{fill:var(--obs-bg2)}
+.seg.s2{fill:var(--tok-bg)}
+.cur{fill:none;stroke:var(--obs);stroke-width:1.6}
+.bar{stroke:var(--surface);stroke-width:1.5}
+.mat-q,.mat-k{fill:var(--tok-bg)}
+.mat-s{fill:var(--att-bg)}
+.mat-line{fill:none;stroke:var(--fg-3);stroke-width:1.1}
+.hirow{fill:var(--att)}
+.cellbg{fill:var(--surface-2)}
+.gridline{fill:none;stroke:var(--surface);stroke-width:2}
+.cell-self{fill:var(--att-bg);stroke:var(--att-line);stroke-width:1}
+.hirow-o{fill:none;stroke:var(--att);stroke-width:2}
+</style>
+</head>
+<body>
+<div class="page">
+<header>
+<p class="eyebrow">main · Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm</p>
+<h1>Time-MHA Actor <span style="color:var(--head)">· 4+1</span></h1>
+<p class="lede">注意力沿时间轴走。每一帧观测是一个 token。过去 4 帧做一层自注意力，只留下最后一帧的输出；当前帧不进注意力，单独投影后与历史嵌入拼接，再送进 MLP，得到 29 维力矩动作均值。本页数字对应 Phase-1：actor 每帧 57 维，踝关节位置不在观测里。参数量 726,074，已用 <code>parameters()</code> 核对。</p>
+<dl class="spec">
+<div><dt>观测窗口</dt><dd>5 × 57</dd></div>
+<div><dt>注意力 token</dt><dd>4 帧 × 256</dd></div>
+<div><dt>注意力</dt><dd>d=256 · 4 heads × 64</dd></div>
+<div><dt>送入 MLP</dt><dd>当前 256 + 历史 256</dd></div>
+<div><dt>参数量（含 σ）</dt><dd>726,074</dd></div>
+</dl>
+<div class="controls"><button type="button" id="theme-toggle">切换深色</button><a id="download" download="g1_time_mha_actor.html">下载独立 HTML</a><span>main 分支 · 时间自注意力 · Phase-1 观测</span></div>
+</header>
+
+<section>
+<h2>整个 actor 网络</h2>
+<p class="note">历史编码器里没有前馈层。MLP 在拼接之后，宽度是 runner 配置的 (512, 256, 128)。Critic 是另一张 MLP，历史在进网络前被展平，不走这条注意力。</p>
+<figure><div class="plate"><svg id="f1" viewBox="0 0 1040 1288" role="img" aria-label="4+1 时间注意力前向：过去 4 帧自注意力后取最后一帧，当前帧单独投影，拼接后经 MLP 得到 29 维力矩均值。" style="min-width:920px">
+<defs>
+<marker id="f1-ah" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 1 L9 5 L0 9 z" class="ah"/></marker>
+<marker id="f1-ahA" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 1 L9 5 L0 9 z" class="ah att"/></marker>
+</defs>
+<text x="24" y="22" class="t-band">1  输入窗口</text>
+<line x1="108" y1="18" x2="1016" y2="18" class="rule"/>
+<text x="218" y="42" class="t-s" text-anchor="middle">cmd [3]</text>
+<text x="386" y="42" class="t-s" text-anchor="middle">joint_pos [25]</text>
+<text x="710" y="42" class="t-s" text-anchor="middle">actions [29]</text>
+<g>
+<text x="188" y="66" class="t-m" text-anchor="end">t−4</text>
+<rect x="200" y="52" width="36" height="20" class="seg s0"/><rect x="236" y="52" width="300" height="20" class="seg s1"/><rect x="536" y="52" width="348" height="20" class="seg s2"/>
+<text x="188" y="92" class="t-m" text-anchor="end">t−3</text>
+<rect x="200" y="78" width="36" height="20" class="seg s0"/><rect x="236" y="78" width="300" height="20" class="seg s1"/><rect x="536" y="78" width="348" height="20" class="seg s2"/>
+<text x="188" y="118" class="t-m" text-anchor="end">t−2</text>
+<rect x="200" y="104" width="36" height="20" class="seg s0"/><rect x="236" y="104" width="300" height="20" class="seg s1"/><rect x="536" y="104" width="348" height="20" class="seg s2"/>
+<text x="188" y="144" class="t-m" text-anchor="end">t−1</text>
+<rect x="200" y="130" width="36" height="20" class="seg s0"/><rect x="236" y="130" width="300" height="20" class="seg s1"/><rect x="536" y="130" width="348" height="20" class="seg s2"/>
+<text x="188" y="170" class="t-m" text-anchor="end">t</text>
+<rect x="200" y="156" width="36" height="20" class="seg s0"/><rect x="236" y="156" width="300" height="20" class="seg s1"/><rect x="536" y="156" width="348" height="20" class="seg s2"/>
+<rect x="198.5" y="154.5" width="687" height="23" rx="2" class="cur"/>
+</g>
+<path d="M900 52 H908 V148 H900" class="br"/>
+<text x="920" y="92" class="t-n">历史 4 帧</text>
+<text x="920" y="108" class="t-m">→ K/V 与 Q</text>
+<path d="M900 156 H908 V176 H900" class="br"/>
+<text x="920" y="172" class="t-n">当前帧</text>
+<text x="920" y="188" class="t-m">不进注意力</text>
+
+<text x="24" y="230" class="t-band">2  归一化后拆开</text>
+<line x1="140" y1="226" x2="1016" y2="226" class="rule"/>
+<g><rect x="280" y="248" width="480" height="52" rx="4" class="node plain"/>
+<text x="292" y="270" class="t-b">EmpiricalNormalization</text>
+<text x="292" y="288" class="t-n">57 个特征各一套 running mean / std，5 帧共用</text></g>
+<path d="M542 176 L542 248" class="arr" marker-end="url(#f1-ah)"/>
+<text x="550" y="216" class="t-tag">[B,5,57]</text>
+<g><rect x="24" y="332" width="470" height="64" rx="4" class="node tok"/>
+<text x="36" y="356" class="t-b">history = seq[:, :−1]</text>
+<text x="36" y="376" class="t-m">[B,4,57] · t−4 … t−1</text></g>
+<g><rect x="546" y="332" width="470" height="64" rx="4" class="node head"/>
+<text x="558" y="356" class="t-b">current = seq[:, −1]</text>
+<text x="558" y="376" class="t-m">[B,57] · 帧 t</text></g>
+<path d="M400 300 L400 316 L259 316 L259 332" class="arr" marker-end="url(#f1-ah)"/>
+<path d="M680 300 L680 316 L781 316 L781 332" class="arr" marker-end="url(#f1-ah)"/>
+
+<text x="24" y="428" class="t-band">3  历史编码器 · HistoryMhaEncoder</text>
+<line x1="250" y1="424" x2="500" y2="424" class="rule"/>
+<text x="546" y="428" class="t-band">4  当前帧</text>
+<line x1="630" y1="424" x2="1016" y2="424" class="rule"/>
+
+<g><rect x="24" y="444" width="470" height="58" rx="4" class="node tok"/>
+<text x="36" y="466" class="t-b">input_projection</text>
+<text x="36" y="486" class="t-m">Linear 57→256 · ELU · [B,4,256]</text></g>
+<g><rect x="546" y="444" width="470" height="58" rx="4" class="node head"/>
+<text x="558" y="466" class="t-b">current_projection</text>
+<text x="558" y="486" class="t-m">Linear 57→256 · ELU · [B,256]</text></g>
+<path d="M259 396 L259 444" class="arr" marker-end="url(#f1-ah)"/>
+<path d="M781 396 L781 444" class="arr" marker-end="url(#f1-ah)"/>
+
+<circle cx="259" cy="530" r="9" class="plus"/><line x1="253" y1="530" x2="265" y2="530" class="plus-l"/><line x1="259" y1="524" x2="259" y2="536" class="plus-l"/>
+<path d="M259 502 L259 521" class="arr" marker-end="url(#f1-ah)"/>
+<g><rect x="300" y="508" width="194" height="44" rx="4" class="node plain"/>
+<text x="310" y="526" class="t-b">pos embedding</text>
+<text x="310" y="542" class="t-m">[1,4,256] 可学习</text></g>
+<path d="M300 530 L268 530" class="arr" marker-end="url(#f1-ah)"/>
+
+<g><rect x="546" y="560" width="470" height="52" rx="4" class="node head"/>
+<text x="558" y="582" class="t-b">current_norm</text>
+<text x="558" y="598" class="t-m">LayerNorm 256 · c_t [B,256]</text></g>
+<path d="M781 502 L781 560" class="arr" marker-end="url(#f1-ah)"/>
+
+<rect x="24" y="568" width="470" height="336" rx="8" class="frame"/>
+<text x="36" y="586" class="t-s">Pre-LN · 一层 · 无内部 MLP</text>
+<g><rect x="150" y="598" width="218" height="44" rx="4" class="node plain"/>
+<text x="160" y="616" class="t-b">pre_norm</text>
+<text x="160" y="632" class="t-m">LayerNorm 256</text></g>
+<path d="M259 539 L259 598" class="arr" marker-end="url(#f1-ah)"/>
+<circle cx="259" cy="556" r="2.4" class="dot"/>
+<path d="M259 556 L46 556 L46 820 L250 820" class="arr thin" marker-end="url(#f1-ah)"/>
+<text x="52" y="640" class="t-s">residual</text>
+<g><rect x="110" y="660" width="340" height="72" rx="4" class="node att"/>
+<text x="122" y="682" class="t-b">MultiheadAttention</text>
+<text x="122" y="700" class="t-m">4 heads × 64 · Q=K=V · 无 mask</text>
+<text x="122" y="716" class="t-n">4 个时间 token 两两可见</text></g>
+<path d="M259 642 L259 660" class="arr att" marker-end="url(#f1-ahA)"/>
+<text x="267" y="656" class="t-tag">Q K V</text>
+<circle cx="259" cy="820" r="9" class="plus"/><line x1="253" y1="820" x2="265" y2="820" class="plus-l"/><line x1="259" y1="814" x2="259" y2="826" class="plus-l"/>
+<path d="M259 732 L259 811" class="arr" marker-end="url(#f1-ah)"/>
+<g><rect x="150" y="848" width="218" height="44" rx="4" class="node plain"/>
+<text x="160" y="866" class="t-b">output_norm</text>
+<text x="160" y="882" class="t-m">LayerNorm 256</text></g>
+<path d="M259 829 L259 848" class="arr" marker-end="url(#f1-ah)"/>
+<g><rect x="90" y="916" width="338" height="52" rx="4" class="node tok"/>
+<text x="102" y="936" class="t-b">取最后一帧 hidden[:, −1]</text>
+<text x="102" y="954" class="t-m">h_{t−1} [B,256] · 已读过 t−4…t−1</text></g>
+<path d="M259 892 L259 916" class="arr" marker-end="url(#f1-ah)"/>
+<text x="267" y="908" class="t-tag">[B,4,256]</text>
+
+<text x="24" y="1004" class="t-band">5  拼接后的 MLP</text>
+<line x1="140" y1="1000" x2="1016" y2="1000" class="rule"/>
+<g><rect x="250" y="1018" width="540" height="52" rx="4" class="node head"/>
+<text x="262" y="1038" class="t-b">cat(c_t, h_{t−1})</text>
+<text x="262" y="1056" class="t-m">[B,256] + [B,256] → [B,512]</text></g>
+<path d="M259 968 L259 990 L430 990 L430 1018" class="arr" marker-end="url(#f1-ah)"/>
+<path d="M781 612 L781 990 L610 990 L610 1018" class="arr" marker-end="url(#f1-ah)"/>
+<g><rect x="250" y="1094" width="540" height="72" rx="4" class="node plain"/>
+<text x="262" y="1114" class="t-b">MLP · ELU · 末层线性</text>
+<text x="262" y="1132" class="t-m">512 → 512 → 256 → 128 → 29</text>
+<text x="262" y="1150" class="t-m">输出层正交初始化 gain 0.01，bias = 0</text></g>
+<path d="M520 1070 L520 1094" class="arr" marker-end="url(#f1-ah)"/>
+<text x="528" y="1086" class="t-tag">[B,512]</text>
+
+<text x="24" y="1200" class="t-band">6  分布与力矩</text>
+<line x1="120" y1="1196" x2="1016" y2="1196" class="rule"/>
+<g><rect x="24" y="1214" width="300" height="58" rx="4" class="node head"/>
+<text x="36" y="1236" class="t-b">Gaussian · μ [B,29]</text>
+<text x="36" y="1254" class="t-m">σ [29] init 1 · clamp [0.001, 2]</text></g>
+<g><rect x="360" y="1214" width="280" height="58" rx="4" class="node head"/>
+<text x="372" y="1236" class="t-b">动作 u [B,29]</text>
+<text x="372" y="1254" class="t-m">训练采样 · 部署取 μ</text></g>
+<g><rect x="676" y="1214" width="340" height="58" rx="4" class="node head"/>
+<text x="688" y="1236" class="t-b">τ = clip(0.25·Y1·u, ±Y1)</text>
+<text x="688" y="1254" class="t-m">Y1 = 111 / 71 / 24.8 / 4.8 N·m</text></g>
+<path d="M520 1166 L520 1190 L174 1190 L174 1214" class="arr" marker-end="url(#f1-ah)"/>
+<path d="M324 1243 L360 1243" class="arr" marker-end="url(#f1-ah)"/>
+<path d="M640 1243 L676 1243" class="arr" marker-end="url(#f1-ah)"/>
+</svg></div>
+<figcaption>图 1 · Phase-1 MHA 的完整前向。过去 4 帧是 4 个 token，自注意力之后只保留 t−1 的 256 维。当前帧 t 走右侧投影，和历史嵌入拼成 512 维，再进 MLP。箭头旁是张量形状。</figcaption></figure>
+</section>
+
+<section>
+<h2>一帧里有什么</h2>
+<p class="note">Phase-1 的 actor 只有三项：速度指令、去掉双踝之后的关节位置、上一拍 29 维力矩指令。踝关节仍然有动作，只是位置不进观测，也没有补零列。</p>
+<figure><div class="plate"><svg id="f2" viewBox="0 0 1040 280" role="img" aria-label="57 维帧的三段组成，以及过去四帧在投影后各是一个 256 维时间 token。" style="min-width:860px">
+<defs><marker id="f2-ah" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 1 L9 5 L0 9 z" class="ah"/></marker></defs>
+<text x="24" y="28" class="t-b">单帧 · 57 维 · 按观测项顺序拼接</text>
+<rect x="24" y="48" width="54" height="40" class="seg s0"/><text x="51" y="72" class="t-s" text-anchor="middle">cmd 3</text>
+<rect x="78" y="48" width="450" height="40" class="seg s1"/><text x="303" y="72" class="t-s" text-anchor="middle">joint_pos 25 · 相对默认姿态 · 带编码器偏置</text>
+<rect x="528" y="48" width="488" height="40" class="seg s2"/><text x="772" y="72" class="t-s" text-anchor="middle">actions 29 · 上一拍力矩指令</text>
+<text x="24" y="112" class="t-n">vx, vy, yaw 共 3 维。joint_pos 按机器人关节顺序跳过 4 个踝。actions 仍是全部 29 个关节，顺序与电机一致。</text>
+<text x="24" y="156" class="t-b">进注意力之前，每一帧先投影成 256 维</text>
+<g><rect x="24" y="176" width="150" height="64" rx="4" class="node tok"/><text x="36" y="202" class="t-b">t−4</text><text x="36" y="220" class="t-m">token [256]</text></g>
+<g><rect x="198" y="176" width="150" height="64" rx="4" class="node tok"/><text x="210" y="202" class="t-b">t−3</text><text x="210" y="220" class="t-m">token [256]</text></g>
+<g><rect x="372" y="176" width="150" height="64" rx="4" class="node tok"/><text x="384" y="202" class="t-b">t−2</text><text x="384" y="220" class="t-m">token [256]</text></g>
+<g><rect x="546" y="176" width="150" height="64" rx="4" class="node att"/><text x="558" y="202" class="t-b">t−1</text><text x="558" y="220" class="t-m">被保留的帧</text></g>
+<g><rect x="760" y="176" width="256" height="64" rx="4" class="node head"/><text x="772" y="202" class="t-b">t · 当前帧</text><text x="772" y="220" class="t-m">不在这 4 个 token 里</text></g>
+<text x="24" y="266" class="t-n">位置编码加在 256 维上，长度 4，正弦初始化后可学习。当前帧没有位置编码。</text>
+</svg></div>
+<figcaption>图 2 · 一帧的 57 维，以及它投影之后在时间轴上的位置。橙色的 t−1 是注意力块实际输出的那一帧。</figcaption></figure>
+<div class="jgs">
+<div class="jg"><h3>左腿</h3><ul>
+<li><b>q0 a0</b>left_hip_pitch</li>
+<li><b>q1 a1</b>left_hip_roll</li>
+<li><b>q2 a2</b>left_hip_yaw</li>
+<li><b>q3 a3</b>left_knee</li>
+<li class="blind"><b>a4</b>left_ankle_pitch<i>无位置</i></li>
+<li class="blind"><b>a5</b>left_ankle_roll<i>无位置</i></li>
+</ul></div>
+<div class="jg"><h3>右腿</h3><ul>
+<li><b>q4 a6</b>right_hip_pitch</li>
+<li><b>q5 a7</b>right_hip_roll</li>
+<li><b>q6 a8</b>right_hip_yaw</li>
+<li><b>q7 a9</b>right_knee</li>
+<li class="blind"><b>a10</b>right_ankle_pitch<i>无位置</i></li>
+<li class="blind"><b>a11</b>right_ankle_roll<i>无位置</i></li>
+</ul></div>
+<div class="jg"><h3>腰</h3><ul>
+<li><b>q8 a12</b>waist_yaw</li>
+<li><b>q9 a13</b>waist_roll</li>
+<li><b>q10 a14</b>waist_pitch</li>
+</ul></div>
+<div class="jg"><h3>左臂</h3><ul>
+<li><b>q11 a15</b>left_shoulder_pitch</li>
+<li><b>q12 a16</b>left_shoulder_roll</li>
+<li><b>q13 a17</b>left_shoulder_yaw</li>
+<li><b>q14 a18</b>left_elbow</li>
+<li><b>q15 a19</b>left_wrist_roll</li>
+<li><b>q16 a20</b>left_wrist_pitch</li>
+<li><b>q17 a21</b>left_wrist_yaw</li>
+</ul></div>
+<div class="jg"><h3>右臂</h3><ul>
+<li><b>q18 a22</b>right_shoulder_pitch</li>
+<li><b>q19 a23</b>right_shoulder_roll</li>
+<li><b>q20 a24</b>right_shoulder_yaw</li>
+<li><b>q21 a25</b>right_elbow</li>
+<li><b>q22 a26</b>right_wrist_roll</li>
+<li><b>q23 a27</b>right_wrist_pitch</li>
+<li><b>q24 a28</b>right_wrist_yaw</li>
+</ul></div>
+</div>
+<p class="note" style="margin-top:14px">q 是 joint_pos 里的下标，a 是动作和 actions 历史里的下标。去掉踝之后两者不再对齐：观测里的 q4 是右髋 pitch，动作里的 a4 仍是左踝 pitch。</p>
+</section>
+
+<section>
+<h2>一个 head 里的注意力</h2>
+<p class="note">Q、K、V 来自同一组 4 个时间 token。每个 head 64 维。没有 mask。整段输出是 4×256，网络只取最后一行，也就是 t−1 对四帧的加权结果。</p>
+<figure><div class="plate"><svg id="f3" viewBox="0 0 1040 520" role="img" aria-label="单个 head 的矩阵：4 个时间 query 对 4 个时间 key，softmax 后只有最后一行被后续网络使用。" style="min-width:900px">
+<defs><marker id="f3-ahA" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 1 L9 5 L0 9 z" class="ah att"/></marker></defs>
+<rect x="150" y="70" width="70" height="200" class="mat-q"/>
+<rect x="150" y="220" width="70" height="50" class="hirow"/>
+<rect x="150" y="70" width="70" height="200" class="mat-line"/>
+<text x="185" y="40" class="t-b" text-anchor="middle">Q_h</text>
+<text x="185" y="56" class="t-m" text-anchor="middle">4×64</text>
+<text x="185" y="292" class="t-n" text-anchor="middle">每行一个时刻</text>
+<text x="230" y="176" class="t-op">×</text>
+<rect x="260" y="70" width="200" height="70" class="mat-k"/>
+<rect x="260" y="70" width="200" height="70" class="mat-line"/>
+<text x="360" y="40" class="t-b" text-anchor="middle">K_h^T</text>
+<text x="360" y="56" class="t-m" text-anchor="middle">64×4</text>
+<text x="360" y="292" class="t-n" text-anchor="middle">每列一个时刻</text>
+<text x="476" y="176" class="t-op">=</text>
+<rect x="500" y="70" width="200" height="200" class="mat-s"/>
+<rect x="500" y="220" width="200" height="50" class="hirow"/>
+<rect x="500" y="70" width="200" height="200" class="mat-line"/>
+<text x="600" y="40" class="t-b" text-anchor="middle">S → A</text>
+<text x="600" y="56" class="t-m" text-anchor="middle">4×4</text>
+<text x="600" y="292" class="t-n" text-anchor="middle">逐行 softmax</text>
+<text x="130" y="98" class="t-s" text-anchor="end">t−4</text>
+<text x="130" y="148" class="t-s" text-anchor="end">t−3</text>
+<text x="130" y="198" class="t-s" text-anchor="end">t−2</text>
+<text x="130" y="248" class="t-s" text-anchor="end">t−1</text>
+<text x="525" y="64" class="t-s" text-anchor="middle">t−4</text>
+<text x="575" y="64" class="t-s" text-anchor="middle">t−3</text>
+<text x="625" y="64" class="t-s" text-anchor="middle">t−2</text>
+<text x="675" y="64" class="t-s" text-anchor="middle">t−1</text>
+<text x="720" y="248" class="t-s">← 唯一被保留的行</text>
+<text x="24" y="340" class="t-m">A_h = softmax(Q_h K_h^T / √64)</text>
+<text x="24" y="360" class="t-m">O_h = A_h V_h · V_h 为 4×64</text>
+<text x="24" y="380" class="t-m">out = concat(O_1 … O_4) W_o · W_o 为 256→256</text>
+<text x="24" y="408" class="t-n">in_proj 把 256 一次投到 768，再切成 Q、K、V。4 个 head 并行。out_proj 之后做残差和 output_norm，然后取 [:, −1]。</text>
+<text x="24" y="436" class="t-n">训练前向里 need_weights=False，走 SDPA，不物化这张 4×4。上图是单个 head 的形状，不是某次训练的权重。</text>
+<text x="24" y="470" class="t-sn">高亮行：t−1 作为 query，对 t−4、t−3、t−2 和它自己的 value 做加权。上面三行算完后被丢掉。</text>
+</svg></div>
+<figcaption>图 3 · 时间轴上的 4×4 注意力。行和列都是时刻。后续 MLP 只用 t−1 那一行经 4 个 head 拼起来、再过 out_proj 之后的 256 维。</figcaption></figure>
+</section>
+
+<section>
+<h2>参数量</h2>
+<p class="note">Phase-1、d=256、4 head、MLP (512, 256, 128) 时，可学习参数共 726,074。归一化统计量、ELU、拼接和力矩缩放不计入。两个 57→256 的线性层会随帧宽变化，其余模块不变。</p>
+<h3 class="sub">Phase-1 MHA 的每个模块</h3>
+<div class="tw"><table>
+<thead><tr><th>模块</th><th>形状</th><th class="num">参数量</th><th class="num">占比</th><th></th></tr></thead>
+<tbody>
+<tr><td><code>history.input_projection</code></td><td>Linear 57→256</td><td class="num">14,848</td><td class="num">2.04%</td><td class="sharecol"><span class="share" style="--w:2.04%"></span></td></tr>
+<tr><td><code>history.positional_embedding</code></td><td>[1,4,256]</td><td class="num">1,024</td><td class="num">0.14%</td><td class="sharecol"><span class="share" style="--w:0.14%"></span></td></tr>
+<tr><td><code>history.pre_norm</code></td><td>LayerNorm 256</td><td class="num">512</td><td class="num">0.07%</td><td class="sharecol"><span class="share" style="--w:0.07%"></span></td></tr>
+<tr><td><code>history.attention.in_proj</code></td><td>256→768</td><td class="num">197,376</td><td class="num">27.18%</td><td class="sharecol"><span class="share" style="--w:27.18%"></span></td></tr>
+<tr><td><code>history.attention.out_proj</code></td><td>256→256</td><td class="num">65,792</td><td class="num">9.06%</td><td class="sharecol"><span class="share" style="--w:9.06%"></span></td></tr>
+<tr><td><code>history.output_norm</code></td><td>LayerNorm 256</td><td class="num">512</td><td class="num">0.07%</td><td class="sharecol"><span class="share" style="--w:0.07%"></span></td></tr>
+<tr><td><code>current_projection</code></td><td>Linear 57→256</td><td class="num">14,848</td><td class="num">2.04%</td><td class="sharecol"><span class="share" style="--w:2.04%"></span></td></tr>
+<tr><td><code>current_norm</code></td><td>LayerNorm 256</td><td class="num">512</td><td class="num">0.07%</td><td class="sharecol"><span class="share" style="--w:0.07%"></span></td></tr>
+<tr><td><code>mlp.0</code></td><td>Linear 512→512</td><td class="num">262,656</td><td class="num">36.17%</td><td class="sharecol"><span class="share" style="--w:36.17%"></span></td></tr>
+<tr><td><code>mlp.2</code></td><td>Linear 512→256</td><td class="num">131,328</td><td class="num">18.09%</td><td class="sharecol"><span class="share" style="--w:18.09%"></span></td></tr>
+<tr><td><code>mlp.4</code></td><td>Linear 256→128</td><td class="num">32,896</td><td class="num">4.53%</td><td class="sharecol"><span class="share" style="--w:4.53%"></span></td></tr>
+<tr><td><code>mlp.6</code></td><td>Linear 128→29</td><td class="num">3,741</td><td class="num">0.52%</td><td class="sharecol"><span class="share" style="--w:0.52%"></span></td></tr>
+<tr><td><code>Gaussian σ</code></td><td>[29]</td><td class="num">29</td><td class="num">0.004%</td><td class="sharecol"><span class="share" style="--w:0.02%"></span></td></tr>
+<tr class="total"><td>合计</td><td></td><td class="num">726,074</td><td class="num">100%</td><td></td></tr>
+</tbody></table></div>
+<h3 class="sub">同一 MHA 头换观测布局</h3>
+<div class="tw"><table>
+<thead><tr><th>任务</th><th>一帧内容</th><th class="num">帧宽</th><th class="num">参数量</th></tr></thead>
+<tbody>
+<tr><td><code>Flat-IMU-JPos-JVel-Phase-H5-TimeMHA</code></td><td>ω, g, cmd, phase, q29, qd29, a29</td><td class="num">98</td><td class="num">747,066</td></tr>
+<tr><td><code>Flat-NoIMU-JPos-NoJVel-H5-TimeMHA</code></td><td>cmd, q29, a29</td><td class="num">61</td><td class="num">728,122</td></tr>
+<tr class="here"><td><code>Flat-NoIMU-JPosNoAnkle-NoJVel-H5-TimeMHA</code></td><td>cmd, q25, a29</td><td class="num">57</td><td class="num">726,074</td></tr>
+<tr><td><code>Flat-NoIMU-JPosNoAnkle-NoJVel-H5-MLP</code></td><td>同上，5 帧展平后进 MLP</td><td class="num">285</td><td class="num">314,426</td></tr>
+</tbody></table></div>
+<p class="note" style="margin-top:12px">帧宽每增加 1，两个 Linear →256 各增加 256 个权重，参数量加 512。最后一行是同观测的 MLP 任务，历史被展成 285 维，没有注意力。Rough-MHA 在 Flat-MHA 的 98 维上再加高度扫描。</p>
+</section>
+
+<section class="code">
+<h2>实现入口</h2>
+<dl>
+<dt>models.py · HistoryMhaEncoder</dt><dd>Linear、ELU、可学习位置编码、Pre-LN、一层 MultiheadAttention、残差、output LN，返回 <code>hidden[:, -1]</code>。</dd>
+<dt>models.py · ResidualMhaModel</dt><dd>历史嵌入与当前帧投影拼接。潜变量维度是 <code>2 × encoder_hidden_dim</code>，默认 512。</dd>
+<dt>rl/ppo_cfg.py</dt><dd><code>history_length=5</code>，<code>num_heads=4</code>，<code>encoder_hidden_dim=256</code>，位置编码可学习。</dd>
+<dt>config/g1/rl_cfg.py</dt><dd>MHA runner 的 MLP 隐藏层是 (512, 256, 128)，输出增益 0.01，熵系数 0.001。</dd>
+<dt>config/g1/__init__.py</dt><dd>四个 <code>*-MHA</code> 任务使用 <code>unitree_g1_ppo_mha_runner_cfg</code>。不带 MHA 的任务使用 <code>ResidualMlpModel</code>。</dd>
+<dt>train_effortmha.sh</dt><dd>当前启动的是 <code>Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-MLP-CmdCurr-ObsNorm</code>，actor 是展平历史的 MLP，参数 314,426。本页画的是同观测的 TimeMHA 任务。</dd>
+</dl>
+</section>
+<p class="ft">main · b8ef8e5 · 2026-10-10。张量形状来自 HistoryMhaEncoder 与 ResidualMhaModel 的前向；726,074 与 314,426 来自对应配置下的 parameters() 计数。Critic 不在本页。</p>
+</div>
+<script>
+(()=>{const root=document.documentElement,button=document.getElementById('theme-toggle');let dark=matchMedia('(prefers-color-scheme: dark)').matches;const paint=()=>{root.dataset.theme=dark?'dark':'light';button.textContent=dark?'切换浅色':'切换深色';};paint();button.addEventListener('click',()=>{dark=!dark;paint();});const link=document.getElementById('download');link.addEventListener('click',()=>{const copy=document.documentElement.cloneNode(true);copy.querySelector('#download').removeAttribute('href');link.href=URL.createObjectURL(new Blob(['<!doctype html>\n'+copy.outerHTML],{type:'text/html;charset=utf-8'}));});})();
+</script>
+</body>
+</html>

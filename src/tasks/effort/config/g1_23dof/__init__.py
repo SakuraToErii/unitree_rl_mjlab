@@ -14,7 +14,7 @@ from .rl_cfg import (
 )
 
 register_mjlab_task(
-  task_id="Unitree-G1-23Dof-Effort-Rough",
+  task_id="Unitree-G1-23Dof-Effort-0PD-Rough-IMU-JPos-JVel-Phase-HeightScan-H5-MLP-CmdCurr-TerrainCurr-ObsNorm",
   env_cfg=unitree_g1_23dof_rough_env_cfg(),
   play_env_cfg=unitree_g1_23dof_rough_env_cfg(play=True),
   rl_cfg=unitree_g1_23dof_ppo_runner_cfg(),
@@ -22,7 +22,7 @@ register_mjlab_task(
 )
 
 register_mjlab_task(
-  task_id="Unitree-G1-23Dof-Effort-Flat",
+  task_id="Unitree-G1-23Dof-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-CmdCurr-ObsNorm",
   env_cfg=unitree_g1_23dof_flat_env_cfg(),
   play_env_cfg=unitree_g1_23dof_flat_env_cfg(play=True),
   rl_cfg=unitree_g1_23dof_ppo_runner_cfg(),
@@ -30,7 +30,7 @@ register_mjlab_task(
 )
 
 register_mjlab_task(
-  task_id="Unitree-G1-23Dof-Effort-Rough-MHA",
+  task_id="Unitree-G1-23Dof-Effort-0PD-Rough-IMU-JPos-JVel-Phase-HeightScan-H5-TimeMHA-CmdCurr-TerrainCurr-ObsNorm",
   env_cfg=unitree_g1_23dof_rough_mha_env_cfg(),
   play_env_cfg=unitree_g1_23dof_rough_mha_env_cfg(play=True),
   rl_cfg=unitree_g1_23dof_ppo_mha_runner_cfg(),
@@ -38,7 +38,7 @@ register_mjlab_task(
 )
 
 register_mjlab_task(
-  task_id="Unitree-G1-23Dof-Effort-Flat-MHA",
+  task_id="Unitree-G1-23Dof-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-TimeMHA-CmdCurr-ObsNorm",
   env_cfg=unitree_g1_23dof_flat_mha_env_cfg(),
   play_env_cfg=unitree_g1_23dof_flat_mha_env_cfg(play=True),
   rl_cfg=unitree_g1_23dof_ppo_mha_runner_cfg(),
