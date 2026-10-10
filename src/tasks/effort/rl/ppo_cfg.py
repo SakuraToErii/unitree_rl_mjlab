@@ -40,6 +40,7 @@ class ResidualCrossAttnModelCfg(ResidualMlpModelCfg):
   encoder_hidden_dim: int = 128
   joint_embedding_dim: int = 16
   joint_output_dim: int = 32
+  joint_shared_head: bool = False
   term_dims: tuple[tuple[str, int], ...] = ()
   joint_pos_names: tuple[str, ...] = ()
   action_names: tuple[str, ...] = ()

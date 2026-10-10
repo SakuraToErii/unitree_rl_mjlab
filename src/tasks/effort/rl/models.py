@@ -429,6 +429,48 @@ class _JointAttentionBlock(nn.Module):
     return weights
 
 
+class _PerJointLinear(nn.Module):
+  """Map each joint's hidden vector with that joint's own weights and bias."""
+
+  def __init__(self, num_joints: int, hidden_dim: int, gain: float) -> None:
+    super().__init__()
+    self.weight = nn.Parameter(torch.empty(num_joints, hidden_dim))
+    self.bias = nn.Parameter(torch.zeros(num_joints))
+    nn.init.orthogonal_(self.weight, gain=gain)
+    nn.init.zeros_(self.bias)
+
+  def forward(self, hidden: torch.Tensor) -> torch.Tensor:
+    return (hidden * self.weight).sum(dim=-1) + self.bias
+
+
+class _JointSharedHead(nn.Module):
+  """Share the hidden MLP across joints, then give each joint its own readout."""
+
+  def __init__(
+    self,
+    input_dim: int,
+    num_joints: int,
+    hidden_dims: tuple[int, ...] | list[int],
+    activation: str,
+    output_gain: float,
+  ) -> None:
+    super().__init__()
+    widths = tuple(int(dim) for dim in hidden_dims)
+    if not widths or any(dim < 1 for dim in widths):
+      raise ValueError("The shared joint head requires a positive hidden width.")
+    layers: list[nn.Module] = []
+    prev = input_dim
+    for width in widths:
+      layers.append(nn.Linear(prev, width))
+      layers.append(resolve_nn_activation(activation))
+      prev = width
+    self.shared_trunk = nn.Sequential(*layers)
+    self.joint_output = _PerJointLinear(num_joints, prev, output_gain)
+
+  def forward(self, features: torch.Tensor) -> torch.Tensor:
+    return self.joint_output(self.shared_trunk(features))
+
+
 class _JointCrossAttention(nn.Module):
   """Let every joint query the past torques and positions of all joints and the IMU.
 
@@ -445,8 +487,10 @@ class _JointCrossAttention(nn.Module):
     output_dim: int,
     num_heads: int,
     activation: str,
+    joint_shared_head: bool = False,
   ) -> None:
     super().__init__()
+    self.joint_shared_head = joint_shared_head
     self.slicer = _JointHistorySlicer(layout)
     self.register_buffer("missing", layout.missing)
     self.register_buffer("context_index", layout.context_index)
@@ -474,18 +518,38 @@ class _JointCrossAttention(nn.Module):
     self.output_norm = nn.LayerNorm(hidden_dim)
     self.output_projection = nn.Linear(hidden_dim, output_dim)
     self.current_encoder = _FrameEncoder(layout.feature_dim, hidden_dim, activation)
+    self.current_projection = (
+      nn.Linear(hidden_dim, output_dim) if joint_shared_head else nn.Identity()
+    )
 
   def forward(self, sequence: torch.Tensor) -> torch.Tensor:
-    queries, memory = self._encode(sequence)
+    positions, torques = self.slicer(sequence)
+    queries, memory = self._encode_tokens(sequence, positions, torques)
     joints = self.output_projection(self.output_norm(self.block(queries, memory)))
     current = self.current_encoder(sequence[:, -1])
+    if self.joint_shared_head:
+      current = self.current_projection(current).unsqueeze(1).expand(
+        -1, joints.shape[1], -1
+      )
+      missing = self.missing.unsqueeze(0).unsqueeze(-1).expand(
+        sequence.shape[0], -1, -1
+      )
+      # Identity is concatenated here, not only inside the attention encoders,
+      # so the shared trunk can tell joints apart before the per-joint readout.
+      embedding = self.joint_embedding.unsqueeze(0).expand(sequence.shape[0], -1, -1)
+      return torch.cat(
+        (
+          joints,
+          current,
+          embedding,
+          positions[:, -1].unsqueeze(-1),
+          torques[:, -1].unsqueeze(-1),
+          missing,
+        ),
+        dim=-1,
+      )
     # Flattening keeps one slot per joint, so the MLP head can still tell joints
-    # apart and mix them. A follow-up variant is a head shared across joints,
-    # tau_j = head(joints[:, j]), applied to the [batch, joints, output_dim] rows
-    # in place of this flatten and the MLP. It is the strongest per-joint feedback
-    # prior but has no coordination beyond this block, needs one action per joint
-    # token (29 for G1), and its last layer should keep the small-gain initial
-    # output of _initialize_output_layer.
+    # apart and mix them; joint_shared_head instead keeps [batch, joints, features].
     return torch.cat((current, joints.flatten(start_dim=1)), dim=-1)
 
   def attention_weights(self, sequence: torch.Tensor) -> torch.Tensor:
@@ -495,6 +559,14 @@ class _JointCrossAttention(nn.Module):
 
   def _encode(self, sequence: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     positions, torques = self.slicer(sequence)  # [batch, frames, joints]
+    return self._encode_tokens(sequence, positions, torques)
+
+  def _encode_tokens(
+    self,
+    sequence: torch.Tensor,
+    positions: torch.Tensor,
+    torques: torch.Tensor,
+  ) -> tuple[torch.Tensor, torch.Tensor]:
     identity = torch.cat((self.joint_embedding, self.missing.unsqueeze(-1)), dim=-1)
     identity = identity.unsqueeze(0).expand(sequence.shape[0], -1, -1)
 
@@ -516,8 +588,9 @@ class _JointCrossAttention(nn.Module):
 class ResidualCrossAttnModel(MLPModel):
   """Cross-attention actor: every joint queries past joint and IMU history.
 
-  The per-joint outputs are flattened into the MLP head. See
-  ``_JointCrossAttention.forward`` for the shared per-joint head alternative.
+  The default head mixes flattened joint outputs. With ``joint_shared_head``,
+  each joint shares a hidden MLP over history, the current frame, its joint
+  embedding, and local state, then uses its own linear readout.
   """
 
   def __init__(
@@ -536,6 +609,7 @@ class ResidualCrossAttnModel(MLPModel):
     encoder_hidden_dim: int = 128,
     joint_embedding_dim: int = 16,
     joint_output_dim: int = 32,
+    joint_shared_head: bool = False,
     term_dims: object = None,
     joint_pos_names: object = None,
     action_names: object = None,
@@ -554,9 +628,13 @@ class ResidualCrossAttnModel(MLPModel):
       raise ValueError("joint_output_dim must be positive.")
 
     layout = _resolve_cross_attn_layout(term_dims, joint_pos_names, action_names)
+    if joint_shared_head and output_dim != len(layout.joint_names):
+      raise ValueError("The shared joint head requires one action per joint.")
     self.history_length = history_length
     self.encoder_hidden_dim = encoder_hidden_dim
     self.joint_output_dim = joint_output_dim
+    self.joint_embedding_dim = joint_embedding_dim
+    self.joint_shared_head = joint_shared_head
     self.feature_dim = layout.feature_dim
     self.joint_names = layout.joint_names
     self.token_names = layout.joint_names + (
@@ -572,6 +650,14 @@ class ResidualCrossAttnModel(MLPModel):
       obs_normalization=obs_normalization,
       distribution_cfg=distribution_cfg,
     )
+    if (
+      joint_shared_head
+      and self.distribution is not None
+      and self.distribution.input_dim != output_dim
+    ):
+      raise ValueError(
+        "The shared joint head requires a distribution with one input per action."
+      )
     self.cross_attention = _JointCrossAttention(
       layout,
       history_span=history_length - 1,
@@ -580,8 +666,18 @@ class ResidualCrossAttnModel(MLPModel):
       output_dim=joint_output_dim,
       num_heads=num_heads,
       activation=activation,
+      joint_shared_head=joint_shared_head,
     )
-    _initialize_output_layer(self.mlp, output_gain)
+    if joint_shared_head:
+      self.mlp = _JointSharedHead(
+        self._get_latent_dim(),
+        len(layout.joint_names),
+        hidden_dims,
+        activation,
+        output_gain,
+      )
+    else:
+      _initialize_output_layer(self.mlp, output_gain)
 
   def attention_weights(
     self,
@@ -651,6 +747,8 @@ class ResidualCrossAttnModel(MLPModel):
     return active_obs_groups, single_step_dim
 
   def _get_latent_dim(self) -> int:
+    if self.joint_shared_head:
+      return 2 * self.joint_output_dim + self.joint_embedding_dim + 3
     return self.encoder_hidden_dim + len(self.joint_names) * self.joint_output_dim
 
 

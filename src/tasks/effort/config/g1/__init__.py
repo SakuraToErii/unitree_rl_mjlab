@@ -114,3 +114,18 @@ register_effort_task(
   ),
   rl_cfg=_imu_no_ankle_joint_xattn_cmd_fixed_rl_cfg,
 )
+
+# A separate task also gives playback the V2 head and isolates its checkpoints.
+_imu_no_ankle_joint_shared_xattn_env_cfg = (
+  unitree_g1_flat_partial_phase1_xattn_no_curriculum_env_cfg()
+)
+register_effort_task(
+  task_id="Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-JointSharedXAttn-CmdFixed-ObsNorm",
+  env_cfg=_imu_no_ankle_joint_shared_xattn_env_cfg,
+  play_env_cfg=unitree_g1_flat_partial_phase1_xattn_no_curriculum_env_cfg(play=True),
+  rl_cfg=unitree_g1_ppo_cross_attn_runner_cfg(
+    _imu_no_ankle_joint_shared_xattn_env_cfg,
+    use_bf16_autocast=True,
+    joint_shared_head=True,
+  ),
+)
