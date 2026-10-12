@@ -32,17 +32,16 @@ class ResidualMhaModelCfg(ResidualMlpModelCfg):
 
 @dataclass
 class ResidualGroupTimeModelCfg(ResidualMlpModelCfg):
-  """RSL-RL config for per-joint current-query time attention."""
+  """RSL-RL config for conditional per-joint retrieval plus summary fusion."""
 
   class_name: str = "src.tasks.effort.rl.models:ResidualGroupTimeModel"
   hidden_dims: tuple[int, ...] = (320, 160)
-  history_length: int = 8
+  history_length: int = 5
   num_heads: int = 4
   encoder_hidden_dim: int = 64
   joint_attention_dim: int = 32
   joint_attention_heads: int = 4
   joint_attention_output_dim: int = 64
-  cross_joint_fusion: bool = False
   term_dims: tuple[tuple[str, int], ...] = ()
   joint_pos_names: tuple[str, ...] = ()
   action_names: tuple[str, ...] = ()

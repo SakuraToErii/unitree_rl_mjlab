@@ -287,12 +287,12 @@ def unitree_g1_flat_partial_no_ankle_env_cfg(
 def unitree_g1_flat_partial_phase1_group_time_env_cfg(
   play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
-  """IMU-kept ankle-blind actor with an eight-frame group-time window."""
+  """IMU-kept ankle-blind actor with a five-frame group-time window."""
   return enable_group_time_history(unitree_g1_flat_partial_phase1_env_cfg(play=play))
 
 
 def unitree_g1_flat_partial_no_ankle_group_time_env_cfg(
   play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
-  """Ankle-blind partial actor with an eight-frame group-time window."""
+  """Ankle-blind partial actor with a five-frame group-time window."""
   return enable_group_time_history(unitree_g1_flat_partial_no_ankle_env_cfg(play=play))

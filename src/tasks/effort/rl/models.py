@@ -270,6 +270,7 @@ class _JointLayout:
   joint_names: tuple[str, ...]
   joint_pos: slice
   actions: slice
+  command: slice
   position_index: torch.Tensor
   missing: torch.Tensor
   imu_index: torch.Tensor
@@ -347,6 +348,7 @@ def _resolve_cross_attn_layout(
     joint_names=controlled_joints,
     joint_pos=joint_pos_slice,
     actions=action_slice,
+    command=slices["command"],
     position_index=position_index,
     missing=missing,
     imu_index=torch.tensor(imu_features, dtype=torch.long),
@@ -479,6 +481,128 @@ class _CurrentQueryTimeEncoder(nn.Module):
     return weights
 
 
+class _SharedHistoryEncoder(nn.Module):
+  """Project one joint's ``(q, previous action, valid)`` features for every frame."""
+
+  def __init__(self, input_dim: int, hidden_dim: int, activation: str) -> None:
+    super().__init__()
+    self.projection = nn.Linear(input_dim, hidden_dim)
+    self.activation = resolve_nn_activation(activation)
+
+  def forward(self, features: torch.Tensor) -> torch.Tensor:
+    return self.activation(self.projection(features))
+
+
+class _QueryEncoder(nn.Module):
+  """Project the conditional current-joint query. One projection is shared by every joint."""
+
+  def __init__(self, input_dim: int, hidden_dim: int, activation: str) -> None:
+    super().__init__()
+    self.projection = nn.Linear(input_dim, hidden_dim)
+    self.activation = resolve_nn_activation(activation)
+
+  def forward(self, features: torch.Tensor) -> torch.Tensor:
+    return self.activation(self.projection(features))
+
+
+class _GlobalCurrentEncoder(nn.Module):
+  """Map the current whole-body frame to one shared vector.
+
+  Feature order is normalized joint positions, normalized previous actions,
+  position-valid flags, then the current normalized IMU when the actor has one.
+  """
+
+  def __init__(self, input_dim: int, hidden_dim: int, activation: str) -> None:
+    super().__init__()
+    if input_dim < 1:
+      raise ValueError("The global current encoder needs at least one feature.")
+    self.projection = nn.Linear(input_dim, hidden_dim)
+    self.activation = resolve_nn_activation(activation)
+    self.norm = nn.LayerNorm(hidden_dim)
+
+  def forward(self, features: torch.Tensor) -> torch.Tensor:
+    return self.norm(self.activation(self.projection(features)))
+
+
+class _ConditionalJointTimeEncoder(nn.Module):
+  """Retrieve each joint's own history with a separately projected query.
+
+  ``M`` is the shared history projection plus that frame's time encoding.
+  ``Q`` is the query projection plus the current frame's time encoding.
+  Attention stays at ``hidden_dim``. The lift to ``output_dim`` follows the
+  residual and the output LayerNorm, with no extra activation.
+  """
+
+  def __init__(
+    self,
+    query_input_dim: int,
+    hidden_dim: int,
+    num_heads: int,
+    activation: str,
+    output_dim: int,
+  ) -> None:
+    super().__init__()
+    if hidden_dim % num_heads != 0:
+      raise ValueError("Attention hidden_dim must be divisible by num_heads.")
+    self.hidden_dim = hidden_dim
+    self.output_dim = output_dim
+    self.need_weights = True
+    self.local_dim = 3
+    self.history_encoder = _SharedHistoryEncoder(self.local_dim, hidden_dim, activation)
+    self.query_encoder = _QueryEncoder(query_input_dim, hidden_dim, activation)
+    self.query_norm = nn.LayerNorm(hidden_dim)
+    self.memory_norm = nn.LayerNorm(hidden_dim)
+    self.attention = nn.MultiheadAttention(hidden_dim, num_heads, batch_first=True)
+    self.output_norm = nn.LayerNorm(hidden_dim)
+    self.output_projection = (
+      nn.Identity() if output_dim == hidden_dim else nn.Linear(hidden_dim, output_dim)
+    )
+
+  def memory(self, features: torch.Tensor, position: torch.Tensor) -> torch.Tensor:
+    hidden = self.history_encoder(features)
+    return hidden + position[:, : features.shape[1]]
+
+  def query(self, features: torch.Tensor, position: torch.Tensor) -> torch.Tensor:
+    hidden = self.query_encoder(features).unsqueeze(1)
+    return hidden + position[:, -1:]
+
+  def forward(
+    self,
+    memory_features: torch.Tensor,
+    query_features: torch.Tensor,
+    position: torch.Tensor,
+  ) -> torch.Tensor:
+    query = self.query(query_features, position)
+    memory = self.memory_norm(self.memory(memory_features, position))
+    # Query length 1 in fp32 is faster on the math path. See bug.md.
+    attended, _weights = self.attention(
+      self.query_norm(query),
+      memory,
+      memory,
+      need_weights=True,
+    )
+    summary = self.output_norm(query + attended).squeeze(1)
+    return self.output_projection(summary)
+
+  def attention_weights(
+    self,
+    memory_features: torch.Tensor,
+    query_features: torch.Tensor,
+    position: torch.Tensor,
+  ) -> torch.Tensor:
+    """Softmax of the conditional query over the window, shaped [batch, heads, 1, time]."""
+    query = self.query(query_features, position)
+    memory = self.memory_norm(self.memory(memory_features, position))
+    _attended, weights = self.attention(
+      self.query_norm(query),
+      memory,
+      memory,
+      need_weights=True,
+      average_attn_weights=False,
+    )
+    return weights
+
+
 class _SummaryFusion(nn.Module):
   """One residual self-attention over joint summaries and the IMU summary."""
 
@@ -493,6 +617,7 @@ class _SummaryFusion(nn.Module):
   ) -> tuple[torch.Tensor, torch.Tensor]:
     tokens = self._tokens(joints, imu)
     normed = self.pre_norm(tokens)
+    # Full token self-attention, not the length-1 retrieval. Keep the math-path flag off.
     attended, _ = self.attention(normed, normed, normed, need_weights=False)
     mixed = self.output_norm(tokens + attended)
     return mixed[:, :-1], mixed[:, -1]
@@ -511,11 +636,16 @@ class _SummaryFusion(nn.Module):
 
 
 class _GroupTimeCore(nn.Module):
-  """Per-joint (q_k, τ_{k-1}, m_k) retrieval, plus a separate IMU stream.
+  """Conditional per-joint retrieval, an IMU stream, then summary fusion.
 
   Frame k already stores last_action, which is the torque applied before q_k.
   A later execution delay belongs in that stored torque, not in a second shift here.
+  ``g_t`` conditions the joint query. The MLP still reads the current position,
+  validity, previous action, and command directly.
   """
+
+  JOINT_ID_DIM = 16
+  GLOBAL_DIM = 32
 
   def __init__(
     self,
@@ -524,14 +654,12 @@ class _GroupTimeCore(nn.Module):
     hidden_dim: int,
     num_heads: int,
     activation: str,
-    cross_joint_fusion: bool,
     joint_attention_dim: int,
     joint_attention_heads: int,
     joint_attention_output_dim: int,
   ) -> None:
     super().__init__()
     self.slicer = _JointHistorySlicer(layout)
-    self.cross_joint_fusion = cross_joint_fusion
     self.joint_attention_dim = joint_attention_dim
     self.imu_hidden_dim = hidden_dim
     imu_index = layout.imu_index.to(dtype=torch.long)
@@ -539,26 +667,43 @@ class _GroupTimeCore(nn.Module):
     context_index = [
       int(index) for index in layout.context_index.tolist() if int(index) not in imu_set
     ]
-    if not context_index:
+    command_absolute = list(range(layout.command.start, layout.command.stop))
+    if any(index in imu_set for index in command_absolute):
+      raise ValueError("Command features must stay outside the IMU stream.")
+    missing_command = [index for index in command_absolute if index not in context_index]
+    if not context_index or missing_command:
       raise ValueError("Group-time actor observations have no command features.")
-    if cross_joint_fusion and imu_index.numel() and joint_attention_output_dim != hidden_dim:
+    if joint_attention_output_dim % num_heads != 0:
       raise ValueError(
-        "Cross-joint fusion attends over joint and IMU summaries, so "
+        "Summary fusion attends at joint_attention_output_dim, "
+        "so it must be divisible by num_heads."
+      )
+    if imu_index.numel() and joint_attention_output_dim != hidden_dim:
+      raise ValueError(
+        "Summary fusion attends over joint and IMU summaries, so "
         "joint_attention_output_dim must equal the IMU encoder width."
       )
+    command_in_context = [context_index.index(index) for index in command_absolute]
+    joint_count = len(layout.joint_names)
     self.register_buffer("valid_joint", (1.0 - layout.missing).to(dtype=torch.float32))
     self.register_buffer("imu_index", imu_index)
     self.register_buffer("context_index", torch.tensor(context_index, dtype=torch.long))
-    self.joint_pos_norm = _MaskedRunningNorm(len(layout.joint_names))
-    self.joint_torque_norm = _MaskedRunningNorm(len(layout.joint_names))
+    self.register_buffer("command_in_context", torch.tensor(command_in_context, dtype=torch.long))
+    self.joint_id = nn.Embedding(joint_count, self.JOINT_ID_DIM)
+    self.joint_pos_norm = _MaskedRunningNorm(joint_count)
+    self.joint_torque_norm = _MaskedRunningNorm(joint_count)
     self.context_norm = _MaskedRunningNorm(len(context_index))
-    self.joint_encoder = _CurrentQueryTimeEncoder(
-      3,
+    self.global_encoder = _GlobalCurrentEncoder(
+      3 * joint_count + int(imu_index.numel()),
+      self.GLOBAL_DIM,
+      activation,
+    )
+    self.joint_encoder = _ConditionalJointTimeEncoder(
+      3 + self.JOINT_ID_DIM + self.GLOBAL_DIM + len(command_absolute),
       joint_attention_dim,
       joint_attention_heads,
       activation,
       output_dim=joint_attention_output_dim,
-      need_weights=True,
     )
     if imu_index.numel():
       self.imu_norm = _MaskedRunningNorm(int(imu_index.numel()))
@@ -572,9 +717,7 @@ class _GroupTimeCore(nn.Module):
     else:
       self.imu_norm = None
       self.imu_encoder = None
-    self.fusion = (
-      _SummaryFusion(joint_attention_output_dim, num_heads) if cross_joint_fusion else None
-    )
+    self.fusion = _SummaryFusion(joint_attention_output_dim, num_heads)
     if joint_attention_dim == hidden_dim:
       self.positional_embedding = nn.Parameter(
         _sinusoidal_position_encoding(history_length, hidden_dim)
@@ -620,12 +763,98 @@ class _GroupTimeCore(nn.Module):
       imu_window = torch.cat((imu, imu_mask), dim=-1)
     return flat_joints, imu_window, position_hat, mask, torque_hat
 
+  def _current_context(self, sequence: torch.Tensor) -> torch.Tensor:
+    return self.context_norm(
+      sequence[:, -1].index_select(-1, self.context_index),
+      torch.ones(self.context_index.numel(), device=sequence.device),
+    )
+
+  def _global_features(
+    self,
+    position_hat: torch.Tensor,
+    torque_hat: torch.Tensor,
+    mask: torch.Tensor,
+    imu_window: torch.Tensor | None,
+  ) -> torch.Tensor:
+    current = (position_hat[:, -1], torque_hat[:, -1], mask[:, -1])
+    if imu_window is None:
+      return torch.cat(current, dim=-1)
+    return torch.cat((*current, imu_window[:, -1, :-1]), dim=-1)
+
+  def _query_features(
+    self,
+    flat_joints: torch.Tensor,
+    position_hat: torch.Tensor,
+    mask: torch.Tensor,
+    torque_hat: torch.Tensor,
+    imu_window: torch.Tensor | None,
+    command_hat: torch.Tensor,
+  ) -> torch.Tensor:
+    batch = position_hat.shape[0]
+    joints = self.valid_joint.shape[0]
+    identity = self.joint_id(torch.arange(joints, device=flat_joints.device)).repeat(batch, 1)
+    global_state = self.global_encoder(
+      self._global_features(position_hat, torque_hat, mask, imu_window)
+    )
+    return torch.cat(
+      (
+        flat_joints[:, -1],
+        identity,
+        global_state.repeat_interleave(joints, dim=0),
+        command_hat.repeat_interleave(joints, dim=0),
+      ),
+      dim=-1,
+    )
+
+  def _prepared(
+    self, sequence: torch.Tensor
+  ) -> tuple[
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor | None,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+  ]:
+    flat_joints, imu_window, position_hat, mask, torque_hat = self._windows(sequence)
+    context = self._current_context(sequence)
+    command_hat = context.index_select(-1, self.command_in_context)
+    query_features = self._query_features(
+      flat_joints, position_hat, mask, torque_hat, imu_window, command_hat
+    )
+    return flat_joints, query_features, imu_window, position_hat, mask, torque_hat, context
+
+  def query_inputs(self, sequence: torch.Tensor) -> torch.Tensor:
+    """Return the conditional query features, shaped ``[batch, joints, features]``."""
+    _flat_joints, query_features, *_rest = self._prepared(sequence)
+    joints = self.valid_joint.shape[0]
+    return query_features.reshape(sequence.shape[0], joints, -1)
+
+  def conditional_queries(self, sequence: torch.Tensor) -> torch.Tensor:
+    """Return Q after the current-frame time encoding, shaped ``[batch, joints, 32]``."""
+    flat_joints, query_features, *_rest = self._prepared(sequence)
+    del flat_joints
+    queries = self.joint_encoder.query(query_features, self._position("joint"))
+    joints = self.valid_joint.shape[0]
+    return queries.reshape(sequence.shape[0], joints, -1)
+
+  def history_memory(self, sequence: torch.Tensor) -> torch.Tensor:
+    """Return M before the memory norm, shaped ``[batch, joints, time, 32]``."""
+    flat_joints, *_rest = self._prepared(sequence)
+    memory = self.joint_encoder.memory(flat_joints, self._position("joint"))
+    joints = self.valid_joint.shape[0]
+    return memory.reshape(sequence.shape[0], joints, flat_joints.shape[1], -1)
+
   def _summaries(
-    self, sequence: torch.Tensor, flat_joints: torch.Tensor, imu_window: torch.Tensor | None
+    self,
+    sequence: torch.Tensor,
+    flat_joints: torch.Tensor,
+    query_features: torch.Tensor,
+    imu_window: torch.Tensor | None,
   ) -> tuple[torch.Tensor, torch.Tensor]:
-    joints = int(self.valid_joint.shape[0])
-    summaries = self.joint_encoder(flat_joints, self._position("joint"))
-    summaries = summaries.reshape(sequence.shape[0], joints, -1)
+    summaries = self.joint_encoder(flat_joints, query_features, self._position("joint"))
+    summaries = summaries.reshape(sequence.shape[0], self.valid_joint.shape[0], -1)
     if imu_window is None or self.imu_encoder is None:
       imu_summary = sequence.new_zeros(sequence.shape[0], summaries.shape[-1])
     else:
@@ -641,15 +870,11 @@ class _GroupTimeCore(nn.Module):
     return self.imu_positional_embedding
 
   def forward(self, sequence: torch.Tensor) -> torch.Tensor:
-    flat_joints, imu_window, position_hat, mask, torque_hat = self._windows(sequence)
-    summaries, imu_summary = self._summaries(sequence, flat_joints, imu_window)
-    if self.fusion is not None:
-      summaries, imu_summary = self.fusion(summaries, imu_summary)
-
-    context = self.context_norm(
-      sequence[:, -1].index_select(-1, self.context_index),
-      torch.ones(self.context_index.numel(), device=sequence.device),
+    flat_joints, query_features, imu_window, position_hat, mask, torque_hat, context = (
+      self._prepared(sequence)
     )
+    summaries, imu_summary = self._summaries(sequence, flat_joints, query_features, imu_window)
+    summaries, imu_summary = self.fusion(summaries, imu_summary)
     return torch.cat(
       (
         summaries.flatten(start_dim=1),
@@ -664,15 +889,19 @@ class _GroupTimeCore(nn.Module):
 
   def attention_weights(
     self, sequence: torch.Tensor
-  ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
+  ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor]:
     """Return time, IMU-time, and fusion softmax maps.
 
     Time is ``[batch, heads, joints, frames]``. IMU time is
     ``[batch, heads, 1, frames]`` when the actor has an IMU stream. Fusion is
     ``[batch, heads, tokens, tokens]`` over the joint summaries plus IMU.
     """
-    flat_joints, imu_window, _position_hat, _mask, _torque_hat = self._windows(sequence)
-    raw = self.joint_encoder.attention_weights(flat_joints, self._position("joint"))
+    flat_joints, query_features, imu_window, _position_hat, _mask, _torque_hat, _context = (
+      self._prepared(sequence)
+    )
+    raw = self.joint_encoder.attention_weights(
+      flat_joints, query_features, self._position("joint")
+    )
     batch = sequence.shape[0]
     time = sequence.shape[1]
     joints = int(self.valid_joint.shape[0])
@@ -680,18 +909,19 @@ class _GroupTimeCore(nn.Module):
     imu_weights = None
     if imu_window is not None and self.imu_encoder is not None:
       imu_weights = self.imu_encoder.attention_weights(imu_window, self._position("imu"))
-    fusion_weights = None
-    if self.fusion is not None:
-      summaries, imu_summary = self._summaries(sequence, flat_joints, imu_window)
-      fusion_weights = self.fusion.attention_weights(summaries, imu_summary)
+    summaries, imu_summary = self._summaries(sequence, flat_joints, query_features, imu_window)
+    fusion_weights = self.fusion.attention_weights(summaries, imu_summary)
     return time_weights, imu_weights, fusion_weights
 
 
 class ResidualGroupTimeModel(MLPModel):
-  """Current-frame retrieval over per-joint torque-response history.
+  """Conditional per-joint retrieval followed by summary fusion.
 
-  The optional fusion layer is a single residual self-attention after the
-  summaries exist. It does not replace the per-joint time retrieval.
+  Each joint query sees its current local state, a learned joint id, the shared
+  current global state, and the current command. It retrieves that joint's own
+  history. One residual self-attention then mixes every joint summary with the
+  IMU summary. The whole-body MLP still reads those summaries plus the current
+  position, validity, previous action, and command.
   """
 
   def __init__(
@@ -705,18 +935,21 @@ class ResidualGroupTimeModel(MLPModel):
     obs_normalization: bool = False,
     distribution_cfg: dict | None = None,
     output_gain: float = 0.01,
-    history_length: int = 8,
+    history_length: int = 5,
     num_heads: int = 4,
     encoder_hidden_dim: int = 64,
     joint_attention_dim: int = 32,
     joint_attention_heads: int = 4,
     joint_attention_output_dim: int = 64,
-    cross_joint_fusion: bool = False,
     term_dims: object = None,
     joint_pos_names: object = None,
     action_names: object = None,
     **unused: object,
   ) -> None:
+    if "cross_joint_fusion" in unused:
+      raise TypeError(
+        "cross_joint_fusion has been removed; summary fusion is part of ResidualGroupTimeModel."
+      )
     del unused
     if history_length < 2:
       raise ValueError("ResidualGroupTimeModel requires at least two observation frames.")
@@ -730,7 +963,6 @@ class ResidualGroupTimeModel(MLPModel):
     self.joint_attention_dim = joint_attention_dim
     self.joint_attention_output_dim = joint_attention_output_dim
     self.has_imu = bool(layout.imu_index.numel())
-    self.cross_joint_fusion = cross_joint_fusion
     self.feature_dim = layout.feature_dim
     self.joint_names = layout.joint_names
     imu_set = {int(index) for index in layout.imu_index.tolist()}
@@ -754,7 +986,6 @@ class ResidualGroupTimeModel(MLPModel):
       hidden_dim=encoder_hidden_dim,
       num_heads=num_heads,
       activation=activation,
-      cross_joint_fusion=cross_joint_fusion,
       joint_attention_dim=joint_attention_dim,
       joint_attention_heads=joint_attention_heads,
       joint_attention_output_dim=joint_attention_output_dim,
@@ -786,8 +1017,8 @@ class ResidualGroupTimeModel(MLPModel):
 
     ``time`` is ``[batch, heads, joints, frames]`` with ``time_rows`` and
     ``time_columns``. ``imu_time`` is present when the actor has an IMU stream.
-    ``fusion`` is ``[batch, heads, tokens, tokens]`` when that layer is enabled,
-    with ``fusion_names`` for both axes.
+    ``fusion`` is ``[batch, heads, tokens, tokens]`` over the joint summaries
+    plus the IMU summary, with ``fusion_names`` for both axes.
     """
     sequence = torch.cat(
       [cast(torch.Tensor, obs[group]) for group in self.obs_groups], dim=-1
@@ -800,12 +1031,11 @@ class ResidualGroupTimeModel(MLPModel):
         "t" if offset == 0 else f"t-{offset}"
         for offset in range(self.history_length - 1, -1, -1)
       ),
+      "fusion": fusion_weights,
+      "fusion_names": self.joint_names + ("imu",),
     }
     if imu_weights is not None:
       saved["imu_time"] = imu_weights
-    if fusion_weights is not None:
-      saved["fusion"] = fusion_weights
-      saved["fusion_names"] = self.joint_names + ("imu",)
     return saved
 
   def as_jit(self) -> nn.Module:

@@ -133,10 +133,8 @@ def g1_actor_cross_attn_layout(
 
 def unitree_g1_ppo_group_time_runner_cfg(
   env_cfg: ManagerBasedRlEnvCfg,
-  *,
-  cross_joint_fusion: bool = False,
 ) -> RslRlOnPolicyRunnerCfg:
-  """Create the group-time PPO runner. Fusion is the cross-joint control arm."""
+  """Create the conditional group-time PPO runner. Summary fusion is always on."""
   term_dims, joint_pos_names, action_names = g1_actor_cross_attn_layout(env_cfg)
   return RslRlOnPolicyRunnerCfg(
     actor=ResidualGroupTimeModelCfg(
@@ -144,13 +142,12 @@ def unitree_g1_ppo_group_time_runner_cfg(
       activation="elu",
       obs_normalization=True,
       distribution_cfg=dict(_EFFORT_DISTRIBUTION_CFG),
-      history_length=8,
+      history_length=5,
       num_heads=4,
       encoder_hidden_dim=64,
       joint_attention_dim=32,
       joint_attention_heads=4,
       joint_attention_output_dim=64,
-      cross_joint_fusion=cross_joint_fusion,
       term_dims=term_dims,
       joint_pos_names=joint_pos_names,
       action_names=action_names,
@@ -174,7 +171,7 @@ def unitree_g1_ppo_group_time_runner_cfg(
       desired_kl=0.01,
       max_grad_norm=1.0,
     ),
-    experiment_name="g1_effort_group_time",
+    experiment_name="g1_effort_group_time_fusion",
     save_interval=100,
     num_steps_per_env=24,
     max_iterations=10_000,

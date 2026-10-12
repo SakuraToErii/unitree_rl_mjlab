@@ -25,6 +25,6 @@ PyTorch 文档说 `need_weights=False` 才会走优化过的 `scaled_dot_product
 
 同一任务、4096 环境、history 5 的整轮 PPO：原来关节 `False` 时 update 8.72 s、整轮 9.68 s。关节改成 `True` 且内部 64 维后，update 2.35 s、整轮 2.97 s。关节再降到内部 32 维后，update 1.58 s、整轮 2.14 s。最后这组数里的 IMU 仍是 `False`。
 
-## 还没改的地方
+## 摘要融合
 
-`_SummaryFusion` 仍是 `need_weights=False`。那是关节摘要之间的完整自注意力，不是 Query 长度 1 的时间检索，上面的计时不包括它。默认训练任务没有打开这层。
+`_SummaryFusion` 仍是 `need_weights=False`。那是关节摘要与 IMU 摘要之间的完整自注意力，不是 Query 长度 1 的时间检索，上面的计时不包括它。增强版 GroupTimeFusion 固定打开这一层。不要把 `need_weights=True` 套到这层上。

@@ -18,11 +18,10 @@
 | `Phase` | Actor 包含步态相位；没有此字段的任务不包含相位 |
 | `HeightScan` | Actor 包含地形高度扫描 |
 | `H5` | Actor 和 Critic 都使用五帧观测，含当前帧 |
-| `H8` | Actor 和 Critic 都使用八帧观测，含当前帧 |
+| `H8` | Actor 和 Critic 都使用八帧观测，含当前帧。当前没有任务使用 |
 | `MLP` | Actor 将历史按观测项展平后输入 MLP |
 | `TimeMHA` | 过去帧做时间自注意力，再拼接当前帧编码 |
-| `GroupTime` | 每个关节用当前拍检索自己的八拍 `(q, τ, m)` 历史；IMU 单独检索 |
-| `GroupTimeFusion` | 在 `GroupTime` 的时间摘要之后再加一层关节间残差自注意力 |
+| `GroupTimeFusion` | 条件化当前关节 Query，检索该关节五帧 `(q, τ, m)`，再让全部关节摘要与 IMU 摘要做一层残差自注意力 |
 | `CmdCurr` | 训练启用命令速度课程 |
 | `CmdFixed` | 训练固定命令采样范围，不启用命令速度课程 |
 | `TerrainCurr` | 训练启用地形难度课程 |
@@ -34,17 +33,17 @@
 实验目录由完整任务 ID 去掉 `Unitree-` 前缀、转小写、将连字符换成下划线得到。
 不同地形、观测、编码器和课程的任务使用独立目录。
 旧任务 ID 不再注册；已有日志、checkpoint 和导出文件不移动。
-`JointXAttn` 与 `JointSharedXAttn` 已从本分支移除，旧 checkpoint 不能加载到 `GroupTime`。
+`JointXAttn`、`JointSharedXAttn` 和没有融合开关的 `GroupTime` 已从本分支移除。
+旧 checkpoint 不能加载到 `GroupTimeFusion`，需要按新结构重新训练。
 
-## 当前 GroupTime 任务
+## 当前 GroupTimeFusion 任务
 
 | Actor 配置 | 任务 ID |
 | --- | --- |
-| 保留 IMU、隐藏踝位置、无关节速度 | `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H8-GroupTime-CmdCurr-ObsNorm` |
-| 无 IMU、隐藏踝位置、无关节速度 | `Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H8-GroupTime-CmdCurr-ObsNorm` |
-| 保留 IMU，时间摘要后再做关节融合 | `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H8-GroupTimeFusion-CmdCurr-ObsNorm` |
+| 保留 IMU、隐藏踝位置、无关节速度 | `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-GroupTimeFusion-CmdCurr-ObsNorm` |
+| 无 IMU、隐藏踝位置、无关节速度 | `Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-GroupTimeFusion-CmdCurr-ObsNorm` |
 
-保留 IMU 的任务没有步态相位。
+两个任务使用同一套 actor：可学习关节身份、当前全局状态和当前命令进入 Query，每个关节检索自己的五帧历史，摘要层固定做全身融合。保留 IMU 的任务没有步态相位。训练入口是 `train_effort_joint_xattn.sh`。
 
 ## 运行
 
@@ -76,3 +75,6 @@ uv run python scripts/list_envs.py --keyword Effort
 | `Unitree-G1-Effort-Flat-Partial-Phase1-XAttn` | 已移除，不再注册 |
 | `Unitree-G1-Effort-Flat-Partial-NoAnkle-XAttn` | 已移除，不再注册 |
 | `Unitree-G1-Effort-Flat-Partial-Phase1-XAttn-NoCurriculum-FP32` | 已移除，不再注册 |
+| `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H8-GroupTime-CmdCurr-ObsNorm` | 已移除。重新训练 `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-GroupTimeFusion-CmdCurr-ObsNorm` |
+| `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H8-GroupTimeFusion-CmdCurr-ObsNorm` | 已移除。重新训练 `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-GroupTimeFusion-CmdCurr-ObsNorm` |
+| `Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H8-GroupTime-CmdCurr-ObsNorm` | 已移除。重新训练 `Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-GroupTimeFusion-CmdCurr-ObsNorm` |

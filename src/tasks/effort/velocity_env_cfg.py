@@ -503,8 +503,8 @@ def enable_mha_history(cfg: ManagerBasedRlEnvCfg) -> ManagerBasedRlEnvCfg:
 
 
 def enable_group_time_history(cfg: ManagerBasedRlEnvCfg) -> ManagerBasedRlEnvCfg:
-  """Eight-frame actor window for per-joint current-query attention."""
-  return _set_history_length(cfg, 8)
+  """Five-frame actor window for per-joint current-query attention."""
+  return _set_history_length(cfg, 5)
 
 
 def _set_history_length(cfg: ManagerBasedRlEnvCfg, length: int) -> ManagerBasedRlEnvCfg:
