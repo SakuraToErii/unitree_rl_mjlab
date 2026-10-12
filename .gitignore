@@ -20,6 +20,7 @@ datasets
 *.sh
 !train_effort.sh
 !train_effort_joint_xattn.sh
+!train_effort_joint_xattn_2cards.sh
 !.agents/**/*.sh
 tests/*
 !tests/test_mjlab_compat.py
