@@ -31,16 +31,18 @@ class ResidualMhaModelCfg(ResidualMlpModelCfg):
 
 
 @dataclass
-class ResidualCrossAttnModelCfg(ResidualMlpModelCfg):
-  """RSL-RL config for per-joint queries over joint and IMU history."""
+class ResidualGroupTimeModelCfg(ResidualMlpModelCfg):
+  """RSL-RL config for per-joint current-query time attention."""
 
-  class_name: str = "src.tasks.effort.rl.models:ResidualCrossAttnModel"
-  history_length: int = 5
+  class_name: str = "src.tasks.effort.rl.models:ResidualGroupTimeModel"
+  hidden_dims: tuple[int, ...] = (320, 160)
+  history_length: int = 8
   num_heads: int = 4
-  encoder_hidden_dim: int = 128
-  joint_embedding_dim: int = 16
-  joint_output_dim: int = 32
-  joint_shared_head: bool = False
+  encoder_hidden_dim: int = 64
+  joint_attention_dim: int = 32
+  joint_attention_heads: int = 4
+  joint_attention_output_dim: int = 64
+  cross_joint_fusion: bool = False
   term_dims: tuple[tuple[str, int], ...] = ()
   joint_pos_names: tuple[str, ...] = ()
   action_names: tuple[str, ...] = ()

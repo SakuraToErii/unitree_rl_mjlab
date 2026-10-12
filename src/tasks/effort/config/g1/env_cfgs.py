@@ -22,6 +22,7 @@ from src.tasks.effort.config.g1.robot_cfg import (
   get_g1_effort_robot_cfg,
 )
 from src.tasks.effort.velocity_env_cfg import (
+  enable_group_time_history,
   enable_mha_history,
   enable_partial_actor_obs,
   make_effort_env_cfg,
@@ -283,31 +284,15 @@ def unitree_g1_flat_partial_no_ankle_env_cfg(
   return cfg
 
 
-def unitree_g1_flat_partial_xattn_env_cfg(
+def unitree_g1_flat_partial_phase1_group_time_env_cfg(
   play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
-  """Flat partial-obs effort task with five-frame history for cross-attention."""
-  return enable_mha_history(unitree_g1_flat_partial_env_cfg(play=play))
+  """IMU-kept ankle-blind actor with an eight-frame group-time window."""
+  return enable_group_time_history(unitree_g1_flat_partial_phase1_env_cfg(play=play))
 
 
-def unitree_g1_flat_partial_no_ankle_xattn_env_cfg(
+def unitree_g1_flat_partial_no_ankle_group_time_env_cfg(
   play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
-  """Ankle-blind partial actor with five-frame history for cross-attention."""
-  return enable_mha_history(unitree_g1_flat_partial_no_ankle_env_cfg(play=play))
-
-
-def unitree_g1_flat_partial_phase1_xattn_env_cfg(
-  play: bool = False,
-) -> ManagerBasedRlEnvCfg:
-  """IMU-kept ankle-blind actor with five-frame history for cross-attention."""
-  return enable_mha_history(unitree_g1_flat_partial_phase1_env_cfg(play=play))
-
-
-def unitree_g1_flat_partial_phase1_xattn_no_curriculum_env_cfg(
-  play: bool = False,
-) -> ManagerBasedRlEnvCfg:
-  """Match the Phase1 MHA observation and fixed command range for XAttn."""
-  cfg = unitree_g1_flat_partial_phase1_xattn_env_cfg(play=play)
-  cfg.curriculum = {}
-  return cfg
+  """Ankle-blind partial actor with an eight-frame group-time window."""
+  return enable_group_time_history(unitree_g1_flat_partial_no_ankle_env_cfg(play=play))

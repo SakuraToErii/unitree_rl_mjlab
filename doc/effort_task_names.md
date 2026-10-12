@@ -18,9 +18,11 @@
 | `Phase` | Actor 包含步态相位；没有此字段的任务不包含相位 |
 | `HeightScan` | Actor 包含地形高度扫描 |
 | `H5` | Actor 和 Critic 都使用五帧观测，含当前帧 |
-| `MLP` | Actor 将五帧按观测项展平后输入 MLP |
-| `TimeMHA` | 过去四帧做时间自注意力，再拼接当前帧编码 |
-| `JointXAttn` | 每个关节一个 query，读取过去四帧的逐关节历史；有 IMU 时增加 IMU 历史 token |
+| `H8` | Actor 和 Critic 都使用八帧观测，含当前帧 |
+| `MLP` | Actor 将历史按观测项展平后输入 MLP |
+| `TimeMHA` | 过去帧做时间自注意力，再拼接当前帧编码 |
+| `GroupTime` | 每个关节用当前拍检索自己的八拍 `(q, τ, m)` 历史；IMU 单独检索 |
+| `GroupTimeFusion` | 在 `GroupTime` 的时间摘要之后再加一层关节间残差自注意力 |
 | `CmdCurr` | 训练启用命令速度课程 |
 | `CmdFixed` | 训练固定命令采样范围，不启用命令速度课程 |
 | `TerrainCurr` | 训练启用地形难度课程 |
@@ -29,36 +31,26 @@
 名称描述注册时的训练配置。Play 模式按原有配置关闭课程；CLI 覆盖观测、
 归一化或课程后，应以该次运行保存的 `params/env.yaml` 和 `params/agent.yaml` 为准。
 
-不使用 `FP32` 后缀：所有已注册 XAttn 任务默认关闭 BF16 autocast，
-而 TF32 由训练参数 `--allow-tf32` 控制，任务 ID 不保证严格 IEEE FP32。
-
 实验目录由完整任务 ID 去掉 `Unitree-` 前缀、转小写、将连字符换成下划线得到。
 不同地形、观测、编码器和课程的任务使用独立目录。
 旧任务 ID 不再注册；已有日志、checkpoint 和导出文件不移动。
-尤其是旧单-query XAttn checkpoint 不能直接加载到当前逐关节 query 网络中。
+`JointXAttn` 与 `JointSharedXAttn` 已从本分支移除，旧 checkpoint 不能加载到 `GroupTime`。
 
-## 当前四个 JointXAttn 任务
+## 当前 GroupTime 任务
 
-| Actor 配置 | 命令配置 | 任务 ID |
-| --- | --- | --- |
-| 无 IMU、全部关节位置、无关节速度 | 课程 | `Unitree-G1-Effort-0PD-Flat-NoIMU-JPos-NoJVel-H5-JointXAttn-CmdCurr-ObsNorm` |
-| 无 IMU、隐藏踝位置、无关节速度 | 课程 | `Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-JointXAttn-CmdCurr-ObsNorm` |
-| 保留 IMU、隐藏踝位置、无关节速度 | 课程 | `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-JointXAttn-CmdCurr-ObsNorm` |
-| 保留 IMU、隐藏踝位置、无关节速度 | 固定 | `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-JointXAttn-CmdFixed-ObsNorm` |
+| Actor 配置 | 任务 ID |
+| --- | --- |
+| 保留 IMU、隐藏踝位置、无关节速度 | `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H8-GroupTime-CmdCurr-ObsNorm` |
+| 无 IMU、隐藏踝位置、无关节速度 | `Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H8-GroupTime-CmdCurr-ObsNorm` |
+| 保留 IMU，时间摘要后再做关节融合 | `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H8-GroupTimeFusion-CmdCurr-ObsNorm` |
 
-保留 IMU 的两个任务没有步态相位，原名 `Phase1` 指开发阶段，不是相位观测。
+保留 IMU 的任务没有步态相位。
 
 ## 运行
 
-逐关节交叉注意力训练脚本为 `train_effort_joint_xattn.sh`
-（原 `train_effort_MHA_new.sh`）。例如：
-
 ```bash
-bash train_effort_joint_xattn.sh
 uv run python scripts/list_envs.py --keyword Effort
 ```
-
-该训练脚本仍显式训练 50,000 次，以覆盖当前 20,000 / 30,000 次对应的课程阶段。
 
 ## 旧名称迁移表
 
@@ -78,9 +70,9 @@ uv run python scripts/list_envs.py --keyword Effort
 | `Unitree-Go2-Effort-Rough-MHA` | `Unitree-Go2-Effort-0PD-Rough-IMU-JPos-JVel-Phase-HeightScan-H5-TimeMHA-CmdCurr-TerrainCurr-ObsNorm` |
 | `Unitree-G1-Effort-Flat-Partial` | `Unitree-G1-Effort-0PD-Flat-NoIMU-JPos-NoJVel-H5-MLP-CmdCurr-ObsNorm` |
 | `Unitree-G1-Effort-Flat-Partial-MHA` | `Unitree-G1-Effort-0PD-Flat-NoIMU-JPos-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm` |
-| `Unitree-G1-Effort-Flat-Partial-XAttn` | `Unitree-G1-Effort-0PD-Flat-NoIMU-JPos-NoJVel-H5-JointXAttn-CmdCurr-ObsNorm` |
+| `Unitree-G1-Effort-Flat-Partial-XAttn` | 已移除，不再注册 |
 | `Unitree-G1-Effort-Flat-Partial-Phase1` | `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-MLP-CmdCurr-ObsNorm` |
 | `Unitree-G1-Effort-Flat-Partial-Phase1-MHA` | `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm` |
-| `Unitree-G1-Effort-Flat-Partial-Phase1-XAttn` | `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-JointXAttn-CmdCurr-ObsNorm` |
-| `Unitree-G1-Effort-Flat-Partial-NoAnkle-XAttn` | `Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-JointXAttn-CmdCurr-ObsNorm` |
-| `Unitree-G1-Effort-Flat-Partial-Phase1-XAttn-NoCurriculum-FP32` | `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-JointXAttn-CmdFixed-ObsNorm` |
+| `Unitree-G1-Effort-Flat-Partial-Phase1-XAttn` | 已移除，不再注册 |
+| `Unitree-G1-Effort-Flat-Partial-NoAnkle-XAttn` | 已移除，不再注册 |
+| `Unitree-G1-Effort-Flat-Partial-Phase1-XAttn-NoCurriculum-FP32` | 已移除，不再注册 |

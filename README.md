@@ -31,7 +31,6 @@ Mjlab 结合了 [Isaac Lab](https://github.com/isaac-sim/IsaacLab) 的成熟高�
 
 0-PD effort 任务名称显式包含 Actor 观测、历史编码器、课程和归一化配置。
 名称字段和旧名称迁移表见 [effort_task_names.md](doc/effort_task_names.md)。
-逐关节交叉注意力训练示例见 [train_effort_joint_xattn.sh](train_effort_joint_xattn.sh)。
 
 ### 1. 速度跟踪训练
 

@@ -284,7 +284,7 @@ def _resolve_cross_attn_layout(
 ) -> _JointLayout:
   """Map a flat actor frame onto one token per controlled joint."""
   if not term_dims or not joint_pos_names or not action_names:
-    raise ValueError("ResidualCrossAttnModel requires an actor observation layout.")
+    raise ValueError("The actor observation layout is missing.")
 
   slices: dict[str, slice] = {}
   offset = 0
@@ -355,26 +355,6 @@ def _resolve_cross_attn_layout(
   )
 
 
-class _FrameEncoder(nn.Module):
-  """Project one vector with a linear layer, activation, and layer norm."""
-
-  def __init__(self, input_dim: int, hidden_dim: int, activation: str) -> None:
-    super().__init__()
-    self.projection = nn.Linear(input_dim, hidden_dim)
-    self.activation = resolve_nn_activation(activation)
-    self.norm = nn.LayerNorm(hidden_dim)
-
-  def forward(self, features: torch.Tensor) -> torch.Tensor:
-    return self.norm(self.activation(self.projection(features)))
-
-
-def _token_encoder(input_dim: int, hidden_dim: int, activation: str) -> nn.Sequential:
-  """Project raw token features; the attention block normalizes them."""
-  return nn.Sequential(
-    nn.Linear(input_dim, hidden_dim), resolve_nn_activation(activation)
-  )
-
-
 class _JointHistorySlicer(nn.Module):
   """Cut a history window into per-joint position and torque histories."""
 
@@ -392,35 +372,105 @@ class _JointHistorySlicer(nn.Module):
     return positions, window[..., self.action_start : self.action_end]
 
 
-class _JointAttentionBlock(nn.Module):
-  """Pre-norm cross-attention with a residual on the queries, then an MLP."""
+class _MaskedRunningNorm(nn.Module):
+  """Per-feature mean and variance. Masked-off features stay at mean 0 and read out 0."""
 
-  def __init__(self, hidden_dim: int, num_heads: int, activation: str) -> None:
+  def __init__(self, dim: int, eps: float = 1e-2) -> None:
     super().__init__()
+    if dim < 1:
+      raise ValueError("A running norm needs at least one feature.")
+    self.eps = eps
+    self.register_buffer("mean", torch.zeros(dim))
+    self.register_buffer("var", torch.ones(dim))
+    self.register_buffer("count", torch.zeros(dim))
+
+  def forward(self, values: torch.Tensor, valid: torch.Tensor) -> torch.Tensor:
+    normalized = (values - self.mean) / (torch.sqrt(self.var) + self.eps)
+    return normalized * valid
+
+  @torch.no_grad()
+  def update(self, values: torch.Tensor, valid: torch.Tensor) -> None:
+    if not self.training:
+      return
+    flat = values.detach().reshape(-1, self.mean.shape[0])
+    if valid.dim() == 1:
+      mask = valid.detach().reshape(1, -1).expand(flat.shape[0], -1).float()
+    else:
+      mask = valid.detach().reshape(-1, self.mean.shape[0]).float()
+    count_x = mask.sum(dim=0)
+    active = count_x > 0
+    denom = count_x.clamp(min=1)
+    mean_x = (flat * mask).sum(dim=0) / denom
+    centered = (flat - mean_x) * mask
+    var_x = centered.square().sum(dim=0) / denom
+    count = self.count + count_x
+    rate = torch.where(active, count_x / count.clamp(min=1), torch.zeros_like(count_x))
+    delta = mean_x - self.mean
+    new_mean = self.mean + rate * delta
+    new_var = (self.var + rate * (var_x - self.var + delta * (mean_x - new_mean))).clamp(min=0)
+    self.mean.copy_(torch.where(active, new_mean, self.mean))
+    self.var.copy_(torch.where(active, new_var, self.var))
+    self.count.copy_(torch.where(active, count, self.count))
+
+
+class _CurrentQueryTimeEncoder(nn.Module):
+  """Project a window, then let the current frame retrieve all frames including itself.
+
+  Attention runs at ``hidden_dim``. The optional lift to ``output_dim`` happens
+  after the residual and output LayerNorm, with no extra activation.
+  """
+
+  def __init__(
+    self,
+    input_dim: int,
+    hidden_dim: int,
+    num_heads: int,
+    activation: str,
+    output_dim: int | None = None,
+    need_weights: bool = False,
+  ) -> None:
+    super().__init__()
+    if hidden_dim % num_heads != 0:
+      raise ValueError("Attention hidden_dim must be divisible by num_heads.")
+    if output_dim is None:
+      output_dim = hidden_dim
+    self.hidden_dim = hidden_dim
+    self.output_dim = output_dim
+    self.need_weights = need_weights
+    self.projection = nn.Linear(input_dim, hidden_dim)
+    self.activation = resolve_nn_activation(activation)
     self.query_norm = nn.LayerNorm(hidden_dim)
     self.memory_norm = nn.LayerNorm(hidden_dim)
     self.attention = nn.MultiheadAttention(hidden_dim, num_heads, batch_first=True)
-    self.mlp_norm = nn.LayerNorm(hidden_dim)
-    self.mlp = nn.Sequential(
-      nn.Linear(hidden_dim, 2 * hidden_dim),
-      resolve_nn_activation(activation),
-      nn.Linear(2 * hidden_dim, hidden_dim),
+    self.output_norm = nn.LayerNorm(hidden_dim)
+    self.output_projection = (
+      nn.Identity() if output_dim == hidden_dim else nn.Linear(hidden_dim, output_dim)
     )
 
-  def forward(self, queries: torch.Tensor, memory: torch.Tensor) -> torch.Tensor:
-    memory = self.memory_norm(memory)
-    attended, _ = self.attention(
-      self.query_norm(queries), memory, memory, need_weights=False
-    )
-    queries = queries + attended
-    return queries + self.mlp(self.mlp_norm(queries))
+  def _hidden(self, features: torch.Tensor, position: torch.Tensor) -> torch.Tensor:
+    hidden = self.activation(self.projection(features))
+    return hidden + position[:, : features.shape[1]]
 
-  def attention_weights(
-    self, queries: torch.Tensor, memory: torch.Tensor
-  ) -> torch.Tensor:
-    memory = self.memory_norm(memory)
-    _, weights = self.attention(
-      self.query_norm(queries),
+  def forward(self, features: torch.Tensor, position: torch.Tensor) -> torch.Tensor:
+    hidden = self._hidden(features, position)
+    query = hidden[:, -1:]
+    memory = self.memory_norm(hidden)
+    attended, _weights = self.attention(
+      self.query_norm(query),
+      memory,
+      memory,
+      need_weights=self.need_weights,
+    )
+    summary = self.output_norm(query + attended).squeeze(1)
+    return self.output_projection(summary)
+
+  def attention_weights(self, features: torch.Tensor, position: torch.Tensor) -> torch.Tensor:
+    """Softmax of the current frame over the window, shaped [batch, heads, 1, time]."""
+    hidden = self._hidden(features, position)
+    query = hidden[:, -1:]
+    memory = self.memory_norm(hidden)
+    _attended, weights = self.attention(
+      self.query_norm(query),
       memory,
       memory,
       need_weights=True,
@@ -429,168 +479,219 @@ class _JointAttentionBlock(nn.Module):
     return weights
 
 
-class _PerJointLinear(nn.Module):
-  """Map each joint's hidden vector with that joint's own weights and bias."""
+class _SummaryFusion(nn.Module):
+  """One residual self-attention over joint summaries and the IMU summary."""
 
-  def __init__(self, num_joints: int, hidden_dim: int, gain: float) -> None:
+  def __init__(self, hidden_dim: int, num_heads: int) -> None:
     super().__init__()
-    self.weight = nn.Parameter(torch.empty(num_joints, hidden_dim))
-    self.bias = nn.Parameter(torch.zeros(num_joints))
-    nn.init.orthogonal_(self.weight, gain=gain)
-    nn.init.zeros_(self.bias)
+    self.pre_norm = nn.LayerNorm(hidden_dim)
+    self.attention = nn.MultiheadAttention(hidden_dim, num_heads, batch_first=True)
+    self.output_norm = nn.LayerNorm(hidden_dim)
 
-  def forward(self, hidden: torch.Tensor) -> torch.Tensor:
-    return (hidden * self.weight).sum(dim=-1) + self.bias
+  def forward(
+    self, joints: torch.Tensor, imu: torch.Tensor
+  ) -> tuple[torch.Tensor, torch.Tensor]:
+    tokens = self._tokens(joints, imu)
+    normed = self.pre_norm(tokens)
+    attended, _ = self.attention(normed, normed, normed, need_weights=False)
+    mixed = self.output_norm(tokens + attended)
+    return mixed[:, :-1], mixed[:, -1]
 
+  def attention_weights(self, joints: torch.Tensor, imu: torch.Tensor) -> torch.Tensor:
+    """Softmax over joint summaries plus the IMU summary, shaped [batch, heads, tokens, tokens]."""
+    tokens = self.pre_norm(self._tokens(joints, imu))
+    _attended, weights = self.attention(
+      tokens, tokens, tokens, need_weights=True, average_attn_weights=False
+    )
+    return weights
 
-class _JointSharedHead(nn.Module):
-  """Share the hidden MLP across joints, then give each joint its own readout."""
-
-  def __init__(
-    self,
-    input_dim: int,
-    num_joints: int,
-    hidden_dims: tuple[int, ...] | list[int],
-    activation: str,
-    output_gain: float,
-  ) -> None:
-    super().__init__()
-    widths = tuple(int(dim) for dim in hidden_dims)
-    if not widths or any(dim < 1 for dim in widths):
-      raise ValueError("The shared joint head requires a positive hidden width.")
-    layers: list[nn.Module] = []
-    prev = input_dim
-    for width in widths:
-      layers.append(nn.Linear(prev, width))
-      layers.append(resolve_nn_activation(activation))
-      prev = width
-    self.shared_trunk = nn.Sequential(*layers)
-    self.joint_output = _PerJointLinear(num_joints, prev, output_gain)
-
-  def forward(self, features: torch.Tensor) -> torch.Tensor:
-    return self.joint_output(self.shared_trunk(features))
+  @staticmethod
+  def _tokens(joints: torch.Tensor, imu: torch.Tensor) -> torch.Tensor:
+    return torch.cat((joints, imu.unsqueeze(1)), dim=1)
 
 
-class _JointCrossAttention(nn.Module):
-  """Let every joint query the past torques and positions of all joints and the IMU.
+class _GroupTimeCore(nn.Module):
+  """Per-joint (q_k, τ_{k-1}, m_k) retrieval, plus a separate IMU stream.
 
-  A joint without a position encoder keeps its token: its position reads zero and
-  its missing flag is set, so its torque history still reaches every query.
+  Frame k already stores last_action, which is the torque applied before q_k.
+  A later execution delay belongs in that stored torque, not in a second shift here.
   """
 
   def __init__(
     self,
     layout: _JointLayout,
-    history_span: int,
-    joint_embedding_dim: int,
+    history_length: int,
     hidden_dim: int,
-    output_dim: int,
     num_heads: int,
     activation: str,
-    joint_shared_head: bool = False,
+    cross_joint_fusion: bool,
+    joint_attention_dim: int,
+    joint_attention_heads: int,
+    joint_attention_output_dim: int,
   ) -> None:
     super().__init__()
-    self.joint_shared_head = joint_shared_head
     self.slicer = _JointHistorySlicer(layout)
-    self.register_buffer("missing", layout.missing)
-    self.register_buffer("context_index", layout.context_index)
-    self.register_buffer("imu_index", layout.imu_index)
-    self.joint_embedding = nn.Parameter(
-      torch.empty(len(layout.joint_names), joint_embedding_dim)
+    self.cross_joint_fusion = cross_joint_fusion
+    self.joint_attention_dim = joint_attention_dim
+    self.imu_hidden_dim = hidden_dim
+    imu_index = layout.imu_index.to(dtype=torch.long)
+    imu_set = {int(index) for index in imu_index.tolist()}
+    context_index = [
+      int(index) for index in layout.context_index.tolist() if int(index) not in imu_set
+    ]
+    if not context_index:
+      raise ValueError("Group-time actor observations have no command features.")
+    if cross_joint_fusion and imu_index.numel() and joint_attention_output_dim != hidden_dim:
+      raise ValueError(
+        "Cross-joint fusion attends over joint and IMU summaries, so "
+        "joint_attention_output_dim must equal the IMU encoder width."
+      )
+    self.register_buffer("valid_joint", (1.0 - layout.missing).to(dtype=torch.float32))
+    self.register_buffer("imu_index", imu_index)
+    self.register_buffer("context_index", torch.tensor(context_index, dtype=torch.long))
+    self.joint_pos_norm = _MaskedRunningNorm(len(layout.joint_names))
+    self.joint_torque_norm = _MaskedRunningNorm(len(layout.joint_names))
+    self.context_norm = _MaskedRunningNorm(len(context_index))
+    self.joint_encoder = _CurrentQueryTimeEncoder(
+      3,
+      joint_attention_dim,
+      joint_attention_heads,
+      activation,
+      output_dim=joint_attention_output_dim,
+      need_weights=True,
     )
-    nn.init.normal_(self.joint_embedding, std=0.02)
+    if imu_index.numel():
+      self.imu_norm = _MaskedRunningNorm(int(imu_index.numel()))
+      self.imu_encoder = _CurrentQueryTimeEncoder(
+        int(imu_index.numel()) + 1,
+        hidden_dim,
+        num_heads,
+        activation,
+        need_weights=True,
+      )
+    else:
+      self.imu_norm = None
+      self.imu_encoder = None
+    self.fusion = (
+      _SummaryFusion(joint_attention_output_dim, num_heads) if cross_joint_fusion else None
+    )
+    if joint_attention_dim == hidden_dim:
+      self.positional_embedding = nn.Parameter(
+        _sinusoidal_position_encoding(history_length, hidden_dim)
+      )
+    else:
+      self.joint_positional_embedding = nn.Parameter(
+        _sinusoidal_position_encoding(history_length, joint_attention_dim)
+      )
+      if self.imu_encoder is not None:
+        self.imu_positional_embedding = nn.Parameter(
+          _sinusoidal_position_encoding(history_length, hidden_dim)
+        )
 
-    identity_dim = joint_embedding_dim + 1
-    self.query_encoder = _token_encoder(2 + identity_dim, hidden_dim, activation)
-    self.history_encoder = _token_encoder(
-      2 * history_span + identity_dim, hidden_dim, activation
-    )
-    self.context_encoder = _token_encoder(
-      layout.context_index.numel(), hidden_dim, activation
-    )
-    imu_width = layout.imu_index.numel()
-    self.imu_encoder = (
-      _token_encoder(history_span * imu_width, hidden_dim, activation)
-      if imu_width
-      else None
-    )
-    self.block = _JointAttentionBlock(hidden_dim, num_heads, activation)
-    self.output_norm = nn.LayerNorm(hidden_dim)
-    self.output_projection = nn.Linear(hidden_dim, output_dim)
-    self.current_encoder = _FrameEncoder(layout.feature_dim, hidden_dim, activation)
-    self.current_projection = (
-      nn.Linear(hidden_dim, output_dim) if joint_shared_head else nn.Identity()
-    )
+  def update(self, sequence: torch.Tensor) -> None:
+    positions, torques = self.slicer(sequence)
+    self.joint_pos_norm.update(positions, self.valid_joint)
+    self.joint_torque_norm.update(torques, self.valid_joint)
+    context = sequence.index_select(-1, self.context_index)
+    self.context_norm.update(context, torch.ones(self.context_index.numel(), device=sequence.device))
+    if self.imu_norm is not None:
+      imu = sequence.index_select(-1, self.imu_index)
+      self.imu_norm.update(imu, torch.ones(self.imu_index.numel(), device=sequence.device))
+
+  def _windows(
+    self, sequence: torch.Tensor
+  ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor, torch.Tensor]:
+    positions, torques = self.slicer(sequence)
+    valid = self.valid_joint.view(1, 1, -1)
+    position_hat = self.joint_pos_norm(positions, valid)
+    # Torque is the applied command, so a missing encoder does not zero it.
+    torque_hat = self.joint_torque_norm(torques, torch.ones_like(self.valid_joint))
+    mask = valid.expand(sequence.shape[0], sequence.shape[1], -1)
+    joint_features = torch.stack((position_hat, torque_hat, mask), dim=-1)
+    batch, time, joints, _channels = joint_features.shape
+    flat_joints = joint_features.permute(0, 2, 1, 3).reshape(batch * joints, time, 3)
+    if self.imu_encoder is None or self.imu_norm is None:
+      imu_window = None
+    else:
+      imu = self.imu_norm(
+        sequence.index_select(-1, self.imu_index), torch.ones(1, device=sequence.device)
+      )
+      imu_mask = torch.ones(batch, time, 1, device=sequence.device, dtype=sequence.dtype)
+      imu_window = torch.cat((imu, imu_mask), dim=-1)
+    return flat_joints, imu_window, position_hat, mask, torque_hat
+
+  def _summaries(
+    self, sequence: torch.Tensor, flat_joints: torch.Tensor, imu_window: torch.Tensor | None
+  ) -> tuple[torch.Tensor, torch.Tensor]:
+    joints = int(self.valid_joint.shape[0])
+    summaries = self.joint_encoder(flat_joints, self._position("joint"))
+    summaries = summaries.reshape(sequence.shape[0], joints, -1)
+    if imu_window is None or self.imu_encoder is None:
+      imu_summary = sequence.new_zeros(sequence.shape[0], summaries.shape[-1])
+    else:
+      imu_summary = self.imu_encoder(imu_window, self._position("imu"))
+    return summaries, imu_summary
+
+  def _position(self, stream: str) -> torch.Tensor:
+    shared = getattr(self, "positional_embedding", None)
+    if shared is not None:
+      return shared
+    if stream == "joint":
+      return self.joint_positional_embedding
+    return self.imu_positional_embedding
 
   def forward(self, sequence: torch.Tensor) -> torch.Tensor:
-    positions, torques = self.slicer(sequence)
-    queries, memory = self._encode_tokens(sequence, positions, torques)
-    joints = self.output_projection(self.output_norm(self.block(queries, memory)))
-    current = self.current_encoder(sequence[:, -1])
-    if self.joint_shared_head:
-      current = self.current_projection(current).unsqueeze(1).expand(
-        -1, joints.shape[1], -1
-      )
-      missing = self.missing.unsqueeze(0).unsqueeze(-1).expand(
-        sequence.shape[0], -1, -1
-      )
-      # Identity is concatenated here, not only inside the attention encoders,
-      # so the shared trunk can tell joints apart before the per-joint readout.
-      embedding = self.joint_embedding.unsqueeze(0).expand(sequence.shape[0], -1, -1)
-      return torch.cat(
-        (
-          joints,
-          current,
-          embedding,
-          positions[:, -1].unsqueeze(-1),
-          torques[:, -1].unsqueeze(-1),
-          missing,
-        ),
-        dim=-1,
-      )
-    # Flattening keeps one slot per joint, so the MLP head can still tell joints
-    # apart and mix them; joint_shared_head instead keeps [batch, joints, features].
-    return torch.cat((current, joints.flatten(start_dim=1)), dim=-1)
+    flat_joints, imu_window, position_hat, mask, torque_hat = self._windows(sequence)
+    summaries, imu_summary = self._summaries(sequence, flat_joints, imu_window)
+    if self.fusion is not None:
+      summaries, imu_summary = self.fusion(summaries, imu_summary)
 
-  def attention_weights(self, sequence: torch.Tensor) -> torch.Tensor:
-    """Return per-head softmax weights shaped [batch, heads, joints, tokens]."""
-    queries, memory = self._encode(sequence)
-    return self.block.attention_weights(queries, memory)
-
-  def _encode(self, sequence: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    positions, torques = self.slicer(sequence)  # [batch, frames, joints]
-    return self._encode_tokens(sequence, positions, torques)
-
-  def _encode_tokens(
-    self,
-    sequence: torch.Tensor,
-    positions: torch.Tensor,
-    torques: torch.Tensor,
-  ) -> tuple[torch.Tensor, torch.Tensor]:
-    identity = torch.cat((self.joint_embedding, self.missing.unsqueeze(-1)), dim=-1)
-    identity = identity.unsqueeze(0).expand(sequence.shape[0], -1, -1)
-
-    current = torch.stack((positions[:, -1], torques[:, -1]), dim=-1)
-    queries = self.query_encoder(torch.cat((current, identity), dim=-1))
-    context = sequence[:, -1].index_select(-1, self.context_index)
-    queries = queries + self.context_encoder(context).unsqueeze(1)
-
-    history = torch.cat(
-      (positions[:, :-1].transpose(1, 2), torques[:, :-1].transpose(1, 2)), dim=-1
+    context = self.context_norm(
+      sequence[:, -1].index_select(-1, self.context_index),
+      torch.ones(self.context_index.numel(), device=sequence.device),
     )
-    tokens = [self.history_encoder(torch.cat((history, identity), dim=-1))]
-    if self.imu_encoder is not None:
-      imu = sequence[:, :-1].index_select(-1, self.imu_index).flatten(start_dim=1)
-      tokens.append(self.imu_encoder(imu).unsqueeze(1))
-    return queries, torch.cat(tokens, dim=1)
+    return torch.cat(
+      (
+        summaries.flatten(start_dim=1),
+        imu_summary,
+        position_hat[:, -1],
+        mask[:, -1],
+        torque_hat[:, -1],
+        context,
+      ),
+      dim=-1,
+    )
+
+  def attention_weights(
+    self, sequence: torch.Tensor
+  ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
+    """Return time, IMU-time, and fusion softmax maps.
+
+    Time is ``[batch, heads, joints, frames]``. IMU time is
+    ``[batch, heads, 1, frames]`` when the actor has an IMU stream. Fusion is
+    ``[batch, heads, tokens, tokens]`` over the joint summaries plus IMU.
+    """
+    flat_joints, imu_window, _position_hat, _mask, _torque_hat = self._windows(sequence)
+    raw = self.joint_encoder.attention_weights(flat_joints, self._position("joint"))
+    batch = sequence.shape[0]
+    time = sequence.shape[1]
+    joints = int(self.valid_joint.shape[0])
+    time_weights = raw.reshape(batch, joints, -1, time).permute(0, 2, 1, 3).contiguous()
+    imu_weights = None
+    if imu_window is not None and self.imu_encoder is not None:
+      imu_weights = self.imu_encoder.attention_weights(imu_window, self._position("imu"))
+    fusion_weights = None
+    if self.fusion is not None:
+      summaries, imu_summary = self._summaries(sequence, flat_joints, imu_window)
+      fusion_weights = self.fusion.attention_weights(summaries, imu_summary)
+    return time_weights, imu_weights, fusion_weights
 
 
-class ResidualCrossAttnModel(MLPModel):
-  """Cross-attention actor: every joint queries past joint and IMU history.
+class ResidualGroupTimeModel(MLPModel):
+  """Current-frame retrieval over per-joint torque-response history.
 
-  The default head mixes flattened joint outputs. With ``joint_shared_head``,
-  each joint shares a hidden MLP over history, the current frame, its joint
-  embedding, and local state, then uses its own linear readout.
+  The optional fusion layer is a single residual self-attention after the
+  summaries exist. It does not replace the per-joint time retrieval.
   """
 
   def __init__(
@@ -599,17 +700,18 @@ class ResidualCrossAttnModel(MLPModel):
     obs_groups: dict[str, list[str]],
     obs_set: str,
     output_dim: int,
-    hidden_dims: tuple[int, ...] | list[int] = (256, 256, 256),
+    hidden_dims: tuple[int, ...] | list[int] = (320, 160),
     activation: str = "elu",
     obs_normalization: bool = False,
     distribution_cfg: dict | None = None,
     output_gain: float = 0.01,
-    history_length: int = 5,
+    history_length: int = 8,
     num_heads: int = 4,
-    encoder_hidden_dim: int = 128,
-    joint_embedding_dim: int = 16,
-    joint_output_dim: int = 32,
-    joint_shared_head: bool = False,
+    encoder_hidden_dim: int = 64,
+    joint_attention_dim: int = 32,
+    joint_attention_heads: int = 4,
+    joint_attention_output_dim: int = 64,
+    cross_joint_fusion: bool = False,
     term_dims: object = None,
     joint_pos_names: object = None,
     action_names: object = None,
@@ -617,28 +719,23 @@ class ResidualCrossAttnModel(MLPModel):
   ) -> None:
     del unused
     if history_length < 2:
-      raise ValueError(
-        "ResidualCrossAttnModel requires at least two observation frames."
-      )
+      raise ValueError("ResidualGroupTimeModel requires at least two observation frames.")
     if encoder_hidden_dim % num_heads != 0:
       raise ValueError("encoder_hidden_dim must be divisible by num_heads.")
-    if joint_embedding_dim < 1:
-      raise ValueError("joint_embedding_dim must be positive.")
-    if joint_output_dim < 1:
-      raise ValueError("joint_output_dim must be positive.")
-
+    if joint_attention_dim % joint_attention_heads != 0:
+      raise ValueError("joint_attention_dim must be divisible by joint_attention_heads.")
     layout = _resolve_cross_attn_layout(term_dims, joint_pos_names, action_names)
-    if joint_shared_head and output_dim != len(layout.joint_names):
-      raise ValueError("The shared joint head requires one action per joint.")
     self.history_length = history_length
     self.encoder_hidden_dim = encoder_hidden_dim
-    self.joint_output_dim = joint_output_dim
-    self.joint_embedding_dim = joint_embedding_dim
-    self.joint_shared_head = joint_shared_head
+    self.joint_attention_dim = joint_attention_dim
+    self.joint_attention_output_dim = joint_attention_output_dim
+    self.has_imu = bool(layout.imu_index.numel())
+    self.cross_joint_fusion = cross_joint_fusion
     self.feature_dim = layout.feature_dim
     self.joint_names = layout.joint_names
-    self.token_names = layout.joint_names + (
-      ("imu",) if layout.imu_index.numel() else ()
+    imu_set = {int(index) for index in layout.imu_index.tolist()}
+    self._context_dim = sum(
+      1 for index in layout.context_index.tolist() if int(index) not in imu_set
     )
     super().__init__(
       obs=obs,
@@ -650,47 +747,19 @@ class ResidualCrossAttnModel(MLPModel):
       obs_normalization=obs_normalization,
       distribution_cfg=distribution_cfg,
     )
-    if (
-      joint_shared_head
-      and self.distribution is not None
-      and self.distribution.input_dim != output_dim
-    ):
-      raise ValueError(
-        "The shared joint head requires a distribution with one input per action."
-      )
-    self.cross_attention = _JointCrossAttention(
+    self.obs_normalizer = nn.Identity()
+    self.core = _GroupTimeCore(
       layout,
-      history_span=history_length - 1,
-      joint_embedding_dim=joint_embedding_dim,
+      history_length=history_length,
       hidden_dim=encoder_hidden_dim,
-      output_dim=joint_output_dim,
       num_heads=num_heads,
       activation=activation,
-      joint_shared_head=joint_shared_head,
+      cross_joint_fusion=cross_joint_fusion,
+      joint_attention_dim=joint_attention_dim,
+      joint_attention_heads=joint_attention_heads,
+      joint_attention_output_dim=joint_attention_output_dim,
     )
-    if joint_shared_head:
-      self.mlp = _JointSharedHead(
-        self._get_latent_dim(),
-        len(layout.joint_names),
-        hidden_dims,
-        activation,
-        output_gain,
-      )
-    else:
-      _initialize_output_layer(self.mlp, output_gain)
-
-  def attention_weights(
-    self,
-    obs: TensorDict,
-    masks: torch.Tensor | None = None,
-    hidden_state: HiddenState = None,
-  ) -> torch.Tensor:
-    """Return joint-query attention shaped [batch, heads, joints, tokens]."""
-    del masks, hidden_state
-    sequence = torch.cat(
-      [cast(torch.Tensor, obs[group]) for group in self.obs_groups], dim=-1
-    )
-    return self.cross_attention.attention_weights(self.obs_normalizer(sequence))
+    _initialize_output_layer(self.mlp, output_gain)
 
   def get_latent(
     self,
@@ -702,21 +771,48 @@ class ResidualCrossAttnModel(MLPModel):
     sequence = torch.cat(
       [cast(torch.Tensor, obs[group]) for group in self.obs_groups], dim=-1
     )
-    return self.cross_attention(self.obs_normalizer(sequence))
+    return self.core(sequence)
 
   def update_normalization(self, obs: TensorDict) -> None:
     if self.obs_normalization:
       sequence = torch.cat(
         [cast(torch.Tensor, obs[group]) for group in self.obs_groups], dim=-1
       )
-      flat_sequence = sequence.reshape(-1, self.feature_dim)
-      self.obs_normalizer.update(flat_sequence)  # type: ignore[union-attr]
+      self.core.update(sequence)
+
+  @torch.no_grad()
+  def attention_weights(self, obs: TensorDict) -> dict[str, torch.Tensor | tuple[str, ...]]:
+    """Softmax maps for the group-time actor.
+
+    ``time`` is ``[batch, heads, joints, frames]`` with ``time_rows`` and
+    ``time_columns``. ``imu_time`` is present when the actor has an IMU stream.
+    ``fusion`` is ``[batch, heads, tokens, tokens]`` when that layer is enabled,
+    with ``fusion_names`` for both axes.
+    """
+    sequence = torch.cat(
+      [cast(torch.Tensor, obs[group]) for group in self.obs_groups], dim=-1
+    )
+    time_weights, imu_weights, fusion_weights = self.core.attention_weights(sequence)
+    saved: dict[str, torch.Tensor | tuple[str, ...]] = {
+      "time": time_weights,
+      "time_rows": self.joint_names,
+      "time_columns": tuple(
+        "t" if offset == 0 else f"t-{offset}"
+        for offset in range(self.history_length - 1, -1, -1)
+      ),
+    }
+    if imu_weights is not None:
+      saved["imu_time"] = imu_weights
+    if fusion_weights is not None:
+      saved["fusion"] = fusion_weights
+      saved["fusion_names"] = self.joint_names + ("imu",)
+    return saved
 
   def as_jit(self) -> nn.Module:
-    return _TorchResidualCrossAttnModel(self)
+    return _TorchResidualGroupTimeModel(self)
 
   def as_onnx(self, verbose: bool = False) -> nn.Module:
-    return _OnnxResidualCrossAttnModel(self, verbose)
+    return _OnnxResidualGroupTimeModel(self, verbose)
 
   def _get_obs_dim(
     self,
@@ -730,7 +826,7 @@ class ResidualCrossAttnModel(MLPModel):
       shape = obs[obs_group].shape
       if len(shape) != 3:
         raise ValueError(
-          "ResidualCrossAttnModel expects [batch, history, features] observations, "
+          "ResidualGroupTimeModel expects [batch, history, features] observations, "
           f"received {shape} for '{obs_group}'."
         )
       if shape[-2] != self.history_length:
@@ -747,16 +843,22 @@ class ResidualCrossAttnModel(MLPModel):
     return active_obs_groups, single_step_dim
 
   def _get_latent_dim(self) -> int:
-    if self.joint_shared_head:
-      return 2 * self.joint_output_dim + self.joint_embedding_dim + 3
-    return self.encoder_hidden_dim + len(self.joint_names) * self.joint_output_dim
+    joints = len(self.joint_names)
+    imu_width = (
+      self.encoder_hidden_dim if self.has_imu else self.joint_attention_output_dim
+    )
+    return (
+      joints * self.joint_attention_output_dim
+      + imu_width
+      + 3 * joints
+      + self._context_dim
+    )
 
 
-class _ResidualCrossAttnExportCore(nn.Module):
-  def __init__(self, model: ResidualCrossAttnModel) -> None:
+class _ResidualGroupTimeExportCore(nn.Module):
+  def __init__(self, model: ResidualGroupTimeModel) -> None:
     super().__init__()
-    self.obs_normalizer = copy.deepcopy(model.obs_normalizer)
-    self.cross_attention = copy.deepcopy(model.cross_attention)
+    self.core = copy.deepcopy(model.core)
     self.mlp = copy.deepcopy(model.mlp)
     if model.distribution is None:
       self.deterministic_output = nn.Identity()
@@ -764,20 +866,19 @@ class _ResidualCrossAttnExportCore(nn.Module):
       self.deterministic_output = model.distribution.as_deterministic_output_module()
 
   def forward(self, observations: torch.Tensor) -> torch.Tensor:
-    latent = self.cross_attention(self.obs_normalizer(observations))
-    return self.deterministic_output(self.mlp(latent))
+    return self.deterministic_output(self.mlp(self.core(observations)))
 
 
-class _TorchResidualCrossAttnModel(_ResidualCrossAttnExportCore):
+class _TorchResidualGroupTimeModel(_ResidualGroupTimeExportCore):
   @torch.jit.export
   def reset(self) -> None:
     pass
 
 
-class _OnnxResidualCrossAttnModel(_ResidualCrossAttnExportCore):
+class _OnnxResidualGroupTimeModel(_ResidualGroupTimeExportCore):
   is_recurrent = False
 
-  def __init__(self, model: ResidualCrossAttnModel, verbose: bool) -> None:
+  def __init__(self, model: ResidualGroupTimeModel, verbose: bool) -> None:
     super().__init__(model)
     self.verbose = verbose
     self.history_length = model.history_length

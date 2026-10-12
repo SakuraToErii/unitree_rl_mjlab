@@ -1,11 +1,9 @@
-"""Plot saved per-joint attention over joint and IMU history tokens.
+"""Plot group-time attention saved by ``ResidualGroupTimeModel.attention_weights``.
 
-The input is a ``torch.save`` dict with ``weights`` of shape
-``[heads, joints, tokens]`` or ``[batch, heads, joints, tokens]``, plus
-``joint_names`` (rows) and ``token_names`` (columns) in the same order. Use
-``model.attention_weights(obs)``, ``model.joint_names`` and ``model.token_names``.
-A batch axis is averaged, so save one step when the figure should describe a
-single moment.
+The input is a ``torch.save`` dict. ``time`` has shape
+``[heads, joints, frames]`` or ``[batch, heads, joints, frames]``, with
+``time_rows`` and ``time_columns``. A batch axis is averaged. ``imu_time`` and
+``fusion`` are written next to the time heatmap when the actor has them.
 """
 
 import argparse
@@ -13,7 +11,7 @@ from pathlib import Path
 
 import torch
 
-from src.tasks.effort.rl.joint_attention import plot_joint_attention
+from src.tasks.effort.rl.joint_attention import plot_group_time_attention
 
 
 def main() -> None:
@@ -22,9 +20,7 @@ def main() -> None:
   parser.add_argument("output_path", type=Path)
   args = parser.parse_args()
   saved = torch.load(args.weights_path, weights_only=False)
-  plot_joint_attention(
-    saved["weights"], saved["joint_names"], saved["token_names"], args.output_path
-  )
+  plot_group_time_attention(saved, args.output_path)
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ from mjlab.rl import (
 
 from src.tasks.effort.config.g1.robot_cfg import get_g1_effort_robot_cfg
 from src.tasks.effort.rl.ppo_cfg import (
-  ResidualCrossAttnModelCfg,
+  ResidualGroupTimeModelCfg,
   ResidualMhaModelCfg,
   ResidualMlpModelCfg,
 )
@@ -105,7 +105,7 @@ def unitree_g1_ppo_mha_runner_cfg() -> RslRlOnPolicyRunnerCfg:
 def g1_actor_cross_attn_layout(
   env_cfg: ManagerBasedRlEnvCfg,
 ) -> tuple[tuple[tuple[str, int], ...], tuple[str, ...], tuple[str, ...]]:
-  """Name the actor terms that a cross-attention policy has to slice."""
+  """Name the actor terms that a per-joint history policy has to slice."""
   robot = Entity(get_g1_effort_robot_cfg())
   _, action_names = robot.find_joints(env_cfg.actions["joint_effort"].actuator_names)
   term_dims: list[tuple[str, int]] = []
@@ -127,25 +127,30 @@ def g1_actor_cross_attn_layout(
     else:
       raise ValueError(f"No feature width registered for actor term '{term_name}'.")
   if joint_pos_names is None:
-    raise ValueError("Cross-attention actor observations have no joint_pos term.")
+    raise ValueError("Actor observations have no joint_pos term.")
   return tuple(term_dims), joint_pos_names, tuple(action_names)
 
 
-def unitree_g1_ppo_cross_attn_runner_cfg(
+def unitree_g1_ppo_group_time_runner_cfg(
   env_cfg: ManagerBasedRlEnvCfg,
   *,
-  use_bf16_autocast: bool = False,
-  joint_shared_head: bool = False,
+  cross_joint_fusion: bool = False,
 ) -> RslRlOnPolicyRunnerCfg:
-  """Create residual-effort cross-attention PPO runner configuration for Unitree G1."""
+  """Create the group-time PPO runner. Fusion is the cross-joint control arm."""
   term_dims, joint_pos_names, action_names = g1_actor_cross_attn_layout(env_cfg)
   return RslRlOnPolicyRunnerCfg(
-    actor=ResidualCrossAttnModelCfg(
-      hidden_dims=(64,) if joint_shared_head else (512, 256, 128),
-      joint_shared_head=joint_shared_head,
+    actor=ResidualGroupTimeModelCfg(
+      hidden_dims=(320, 160),
       activation="elu",
       obs_normalization=True,
       distribution_cfg=dict(_EFFORT_DISTRIBUTION_CFG),
+      history_length=8,
+      num_heads=4,
+      encoder_hidden_dim=64,
+      joint_attention_dim=32,
+      joint_attention_heads=4,
+      joint_attention_output_dim=64,
+      cross_joint_fusion=cross_joint_fusion,
       term_dims=term_dims,
       joint_pos_names=joint_pos_names,
       action_names=action_names,
@@ -168,13 +173,8 @@ def unitree_g1_ppo_cross_attn_runner_cfg(
       lam=0.95,
       desired_kl=0.01,
       max_grad_norm=1.0,
-      class_name=(
-        "src.tasks.effort.rl.bf16_autocast:Bf16AutocastPPO"
-        if use_bf16_autocast
-        else "PPO"
-      ),
     ),
-    experiment_name="g1_effort_xattn",
+    experiment_name="g1_effort_group_time",
     save_interval=100,
     num_steps_per_env=24,
     max_iterations=10_000,

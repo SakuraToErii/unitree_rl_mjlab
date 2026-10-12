@@ -499,12 +499,21 @@ def make_effort_env_cfg() -> ManagerBasedRlEnvCfg:
 
 def enable_mha_history(cfg: ManagerBasedRlEnvCfg) -> ManagerBasedRlEnvCfg:
   """Retain mjlab's time axis for the actor and flatten critic history."""
+  return _set_history_length(cfg, 5)
+
+
+def enable_group_time_history(cfg: ManagerBasedRlEnvCfg) -> ManagerBasedRlEnvCfg:
+  """Eight-frame actor window for per-joint current-query attention."""
+  return _set_history_length(cfg, 8)
+
+
+def _set_history_length(cfg: ManagerBasedRlEnvCfg, length: int) -> ManagerBasedRlEnvCfg:
   actor_obs = cfg.observations["actor"]
-  actor_obs.history_length = 5
+  actor_obs.history_length = length
   actor_obs.flatten_history_dim = False
 
   critic_obs = cfg.observations["critic"]
-  critic_obs.history_length = 5
+  critic_obs.history_length = length
   critic_obs.flatten_history_dim = True
   return cfg
 
