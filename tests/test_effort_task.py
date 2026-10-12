@@ -77,6 +77,8 @@ from src.tasks.effort.rl.runner import (
   EffortOnPolicyRunner,
   append_training_metrics,
   get_effort_metadata,
+  is_metrics_iteration,
+  metrics_log_hook,
 )
 from src.tasks.effort.zero_pd import EFFORT_ACTION_SCALE_FRACTION
 
@@ -1381,6 +1383,51 @@ def _clone_actor_obs(obs: TensorDict) -> TensorDict:
 
 
 class TrainingMetricsFileTest(unittest.TestCase):
+  def test_max_iterations_are_split_into_two_hundred_points(self) -> None:
+    points = [step for step in range(50_000) if is_metrics_iteration(step, 50_000)]
+    self.assertEqual(len(points), 200)
+    self.assertEqual(points[0], 249)
+    self.assertEqual(points[-1], 49_999)
+    self.assertEqual(points[1] - points[0], 250)
+
+    uneven = [step for step in range(10_001) if is_metrics_iteration(step, 10_001)]
+    self.assertEqual(len(uneven), 200)
+    self.assertEqual(uneven[-1], 10_000)
+    self.assertEqual(
+      [step for step in range(4) if is_metrics_iteration(step, 4)],
+      [0, 1, 2, 3],
+    )
+
+  def test_log_hook_appends_only_sampled_iterations(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      logger = SimpleNamespace(
+        disable_logs=False,
+        log_dir=tmp,
+        lenbuffer=[8.0],
+        rewbuffer=[3.0],
+        log=lambda **_kwargs: None,
+      )
+      runner = SimpleNamespace(
+        logger=logger,
+        current_learning_iteration=0,
+      )
+      runner._record_training_metrics = lambda: (  # type: ignore[attr-defined]
+        EffortOnPolicyRunner._record_training_metrics(runner)  # type: ignore[arg-type]
+      )
+      hooked = metrics_log_hook(runner, logger.log, 50_000)  # type: ignore[arg-type]
+      hooked(it=248)
+      hooked(it=249)
+      hooked(it=250)
+      lines = (Path(tmp) / "training_metrics.csv").read_text(encoding="utf-8").splitlines()
+
+    self.assertEqual(
+      lines,
+      [
+        "iteration,episode_length,cumulative_reward",
+        "249,8.000000,3.000000",
+      ],
+    )
+
   def test_checkpoint_appends_iteration_length_and_return(self) -> None:
     with tempfile.TemporaryDirectory() as tmp:
       logger = SimpleNamespace(

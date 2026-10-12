@@ -130,17 +130,38 @@ def get_effort_metadata(
   }
 
 
+METRICS_POINT_COUNT = 200
+
+
+def is_metrics_iteration(
+  iteration: int, max_iterations: int, num_points: int = METRICS_POINT_COUNT
+) -> bool:
+  """Return whether this learning step is one of the stored metric samples.
+
+  Samples are spread across ``max_iterations``. A 50000-step run stores 200
+  rows, at iterations 249, 499, ..., 49999. Model checkpoints stay on
+  ``save_interval``.
+  """
+  if max_iterations <= 0 or iteration < 0 or iteration >= max_iterations:
+    return False
+  if max_iterations <= num_points:
+    return True
+  current = (iteration + 1) * num_points // max_iterations
+  previous = iteration * num_points // max_iterations
+  return current != previous
+
+
 def append_training_metrics(
   log_dir: str,
   iteration: int,
   episode_length: float | None,
   cumulative_reward: float | None,
 ) -> None:
-  """Append one checkpoint row to the run's training metrics file.
+  """Append one sampled row to the run's training metrics file.
 
   The iteration is the learning step shown against ``max_iterations``.
   Episode length and cumulative reward are the means already printed for that
-  step. A repeated save of the same iteration does not add another row.
+  step. A repeated call for the same iteration does not add another row.
   """
   path = Path(log_dir) / "training_metrics.csv"
   if path.exists() and path.stat().st_size > 0:
@@ -159,12 +180,34 @@ def append_training_metrics(
     writer.writerow((iteration, length, reward))
 
 
+def metrics_log_hook(runner: "EffortOnPolicyRunner", log, max_iterations: int):
+  """Log every iteration, and append metrics only on the sampled steps."""
+
+  def log_and_record(*args, **kwargs):
+    log(*args, **kwargs)
+    iteration = int(kwargs["it"] if "it" in kwargs else args[0])
+    if not is_metrics_iteration(iteration, max_iterations):
+      return
+    runner.current_learning_iteration = iteration
+    runner._record_training_metrics()
+
+  return log_and_record
+
+
 class EffortOnPolicyRunner(MjlabOnPolicyRunner):
   env: RslRlVecEnvWrapper
 
+  def learn(self, num_learning_iterations: int, init_at_random_ep_len: bool = False) -> None:
+    max_iterations = int(self.cfg["max_iterations"])
+    original_log = self.logger.log
+    self.logger.log = metrics_log_hook(self, original_log, max_iterations)
+    try:
+      super().learn(num_learning_iterations, init_at_random_ep_len=init_at_random_ep_len)
+    finally:
+      self.logger.log = original_log
+
   def save(self, path: str, infos=None):
     super().save(path, infos)
-    self._record_training_metrics()
     policy_dir, filename, onnx_path = self._get_export_paths(path)
     try:
       self.export_policy_to_onnx(str(policy_dir), filename)
