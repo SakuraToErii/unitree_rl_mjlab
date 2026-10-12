@@ -1,3 +1,7 @@
+import csv
+import statistics
+from pathlib import Path
+
 import torch
 import wandb
 from mjlab.entity import Entity
@@ -126,11 +130,41 @@ def get_effort_metadata(
   }
 
 
+def append_training_metrics(
+  log_dir: str,
+  iteration: int,
+  episode_length: float | None,
+  cumulative_reward: float | None,
+) -> None:
+  """Append one checkpoint row to the run's training metrics file.
+
+  The iteration is the learning step shown against ``max_iterations``.
+  Episode length and cumulative reward are the means already printed for that
+  step. A repeated save of the same iteration does not add another row.
+  """
+  path = Path(log_dir) / "training_metrics.csv"
+  if path.exists() and path.stat().st_size > 0:
+    last_line = path.read_text(encoding="utf-8").splitlines()[-1]
+    if last_line.split(",", 1)[0] == str(iteration):
+      return
+    new_file = False
+  else:
+    new_file = True
+  length = "" if episode_length is None else f"{episode_length:.6f}"
+  reward = "" if cumulative_reward is None else f"{cumulative_reward:.6f}"
+  with path.open("a", encoding="utf-8", newline="") as handle:
+    writer = csv.writer(handle)
+    if new_file:
+      writer.writerow(("iteration", "episode_length", "cumulative_reward"))
+    writer.writerow((iteration, length, reward))
+
+
 class EffortOnPolicyRunner(MjlabOnPolicyRunner):
   env: RslRlVecEnvWrapper
 
   def save(self, path: str, infos=None):
     super().save(path, infos)
+    self._record_training_metrics()
     policy_dir, filename, onnx_path = self._get_export_paths(path)
     try:
       self.export_policy_to_onnx(str(policy_dir), filename)
@@ -148,3 +182,19 @@ class EffortOnPolicyRunner(MjlabOnPolicyRunner):
         wandb.save(str(onnx_path), base_path=str(policy_dir))
     except Exception as error:
       print(f"[WARN] ONNX export failed (training continues): {error}")
+
+  def _record_training_metrics(self) -> None:
+    if self.logger.disable_logs or not self.logger.log_dir:
+      return
+    episode_length = (
+      statistics.mean(self.logger.lenbuffer) if self.logger.lenbuffer else None
+    )
+    cumulative_reward = (
+      statistics.mean(self.logger.rewbuffer) if self.logger.rewbuffer else None
+    )
+    append_training_metrics(
+      self.logger.log_dir,
+      int(self.current_learning_iteration),
+      episode_length,
+      cumulative_reward,
+    )

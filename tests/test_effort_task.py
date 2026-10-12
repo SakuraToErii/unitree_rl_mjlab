@@ -73,7 +73,11 @@ from src.tasks.effort.rl.models import (
   ResidualMhaModel,
   ResidualMlpModel,
 )
-from src.tasks.effort.rl.runner import get_effort_metadata
+from src.tasks.effort.rl.runner import (
+  EffortOnPolicyRunner,
+  append_training_metrics,
+  get_effort_metadata,
+)
 from src.tasks.effort.zero_pd import EFFORT_ACTION_SCALE_FRACTION
 
 G1_EFFORT_TASK_IDS = (
@@ -1374,6 +1378,46 @@ def _clone_actor_obs(obs: TensorDict) -> TensorDict:
   return TensorDict(
     {"actor": obs["actor"].clone()}, batch_size=obs.batch_size
   )
+
+
+class TrainingMetricsFileTest(unittest.TestCase):
+  def test_checkpoint_appends_iteration_length_and_return(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      logger = SimpleNamespace(
+        disable_logs=False,
+        log_dir=tmp,
+        lenbuffer=[10.0, 30.0],
+        rewbuffer=[-2.0, 4.0],
+      )
+      runner = SimpleNamespace(
+        logger=logger,
+        current_learning_iteration=1000,
+      )
+      EffortOnPolicyRunner._record_training_metrics(runner)  # type: ignore[arg-type]
+      runner.current_learning_iteration = 1000
+      EffortOnPolicyRunner._record_training_metrics(runner)  # type: ignore[arg-type]
+      runner.current_learning_iteration = 2000
+      logger.lenbuffer = []
+      logger.rewbuffer = []
+      EffortOnPolicyRunner._record_training_metrics(runner)  # type: ignore[arg-type]
+
+      lines = (Path(tmp) / "training_metrics.csv").read_text(encoding="utf-8").splitlines()
+
+    self.assertEqual(
+      lines,
+      [
+        "iteration,episode_length,cumulative_reward",
+        "1000,20.000000,1.000000",
+        "2000,,",
+      ],
+    )
+
+  def test_append_training_metrics_starts_a_new_file(self) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+      append_training_metrics(tmp, 0, 12.5, -3.25)
+      text = (Path(tmp) / "training_metrics.csv").read_text(encoding="utf-8")
+    self.assertTrue(text.startswith("iteration,episode_length,cumulative_reward\n"))
+    self.assertIn("0,12.500000,-3.250000", text)
 
 
 if __name__ == "__main__":
