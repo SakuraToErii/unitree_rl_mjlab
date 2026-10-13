@@ -265,6 +265,15 @@ def unitree_g1_flat_partial_phase1_mha_env_cfg(
   return enable_mha_history(unitree_g1_flat_partial_phase1_env_cfg(play=play))
 
 
+def unitree_g1_flat_partial_phase1_mha_no_curriculum_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Same actor as the IMU phase-1 TimeMHA task, with command ranges left at full scale."""
+  cfg = unitree_g1_flat_partial_phase1_mha_env_cfg(play=play)
+  cfg.curriculum.pop("command_vel", None)
+  return cfg
+
+
 def unitree_g1_flat_partial_no_ankle_env_cfg(
   play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
@@ -289,6 +298,15 @@ def unitree_g1_flat_partial_phase1_group_time_env_cfg(
 ) -> ManagerBasedRlEnvCfg:
   """IMU-kept ankle-blind actor with a five-frame group-time window."""
   return enable_group_time_history(unitree_g1_flat_partial_phase1_env_cfg(play=play))
+
+
+def unitree_g1_flat_partial_phase1_group_time_no_curriculum_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Same actor as the IMU group-time task, with command ranges left at full scale."""
+  cfg = unitree_g1_flat_partial_phase1_group_time_env_cfg(play=play)
+  cfg.curriculum.pop("command_vel", None)
+  return cfg
 
 
 def unitree_g1_flat_partial_no_ankle_group_time_env_cfg(

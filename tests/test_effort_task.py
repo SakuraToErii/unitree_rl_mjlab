@@ -89,7 +89,9 @@ G1_EFFORT_TASK_IDS = (
   "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-MLP-CmdCurr-ObsNorm",
   "Unitree-G1-Effort-0PD-Flat-NoIMU-JPos-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm",
   "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm",
+  "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-TimeMHA-NoCurr-ObsNorm",
   "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-GroupTimeFusion-CmdCurr-ObsNorm",
+  "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-GroupTimeFusion-NoCurr-ObsNorm",
   "Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-GroupTimeFusion-CmdCurr-ObsNorm",
   "Unitree-G1-Effort-0PD-Rough-IMU-JPos-JVel-Phase-HeightScan-H5-TimeMHA-CmdCurr-TerrainCurr-ObsNorm",
   "Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-TimeMHA-CmdCurr-ObsNorm",
@@ -686,6 +688,25 @@ class EffortTaskTest(unittest.TestCase):
         ":ResidualMhaModel"
       )
     )
+    no_curr_mha = load_env_cfg(
+      "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-TimeMHA-NoCurr-ObsNorm"
+    )
+    self.assertNotIn("command_vel", no_curr_mha.curriculum)
+    self.assertNotIn("terrain_levels", no_curr_mha.curriculum)
+    self.assertEqual(no_curr_mha.commands["twist"].ranges.lin_vel_x, (-2.0, 2.0))
+    self.assertEqual(no_curr_mha.commands["twist"].ranges.lin_vel_y, (-1.0, 1.0))
+    self.assertEqual(no_curr_mha.commands["twist"].ranges.ang_vel_z, (-1.0, 1.0))
+    self.assertEqual(
+      set(no_curr_mha.observations["actor"].terms),
+      set(mha_cfg.observations["actor"].terms),
+    )
+    self.assertEqual(no_curr_mha.observations["actor"].history_length, 5)
+    self.assertFalse(no_curr_mha.observations["actor"].flatten_history_dim)
+    self.assertTrue(
+      load_rl_cfg(
+        "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-TimeMHA-NoCurr-ObsNorm"
+      ).actor.class_name.endswith(":ResidualMhaModel")
+    )
 
   def test_all_effort_variants_use_joint_effort_actions(self) -> None:
     for task_id in ALL_EFFORT_TASK_IDS:
@@ -903,6 +924,25 @@ class EffortTaskTest(unittest.TestCase):
     self.assertIn("base_ang_vel", env_cfg.observations["actor"].terms)
     self.assertEqual(no_imu_env.observations["actor"].history_length, 5)
     self.assertNotIn("base_ang_vel", no_imu_env.observations["actor"].terms)
+    self.assertIn("command_vel", env_cfg.curriculum)
+
+    no_curr_id = (
+      "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-GroupTimeFusion-NoCurr-ObsNorm"
+    )
+    no_curr = load_env_cfg(no_curr_id)
+    self.assertNotIn("command_vel", no_curr.curriculum)
+    self.assertNotIn("terrain_levels", no_curr.curriculum)
+    self.assertEqual(no_curr.commands["twist"].ranges.lin_vel_x, (-2.0, 2.0))
+    self.assertEqual(no_curr.commands["twist"].ranges.lin_vel_y, (-1.0, 1.0))
+    self.assertEqual(no_curr.commands["twist"].ranges.ang_vel_z, (-1.0, 1.0))
+    self.assertEqual(
+      set(no_curr.observations["actor"].terms),
+      set(env_cfg.observations["actor"].terms),
+    )
+    self.assertEqual(no_curr.observations["actor"].history_length, 5)
+    self.assertTrue(
+      load_rl_cfg(no_curr_id).actor.class_name.endswith(":ResidualGroupTimeModel")
+    )
 
     feature_dim = sum(width for _name, width in actor_cfg.term_dims)
     obs = TensorDict(

@@ -23,6 +23,7 @@
 | `TimeMHA` | 过去帧做时间自注意力，再拼接当前帧编码 |
 | `GroupTimeFusion` | 条件化当前关节 Query，检索该关节五帧 `(q, τ, m)`，再让全部关节摘要与 IMU 摘要做一层残差自注意力 |
 | `CmdCurr` | 训练启用命令速度课程 |
+| `NoCurr` | 不启用课程。速度命令从第 0 步就使用配置里的满量程 |
 | `CmdFixed` | 训练固定命令采样范围，不启用命令速度课程 |
 | `TerrainCurr` | 训练启用地形难度课程 |
 | `ObsNorm` | Actor 和 Critic 均启用 EmpiricalNormalization |
@@ -41,9 +42,10 @@
 | Actor 配置 | 任务 ID |
 | --- | --- |
 | 保留 IMU、隐藏踝位置、无关节速度 | `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-GroupTimeFusion-CmdCurr-ObsNorm` |
+| 同上，速度命令从第 0 步就是满量程 | `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-GroupTimeFusion-NoCurr-ObsNorm` |
 | 无 IMU、隐藏踝位置、无关节速度 | `Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-GroupTimeFusion-CmdCurr-ObsNorm` |
 
-两个任务使用同一套 actor：可学习关节身份、当前全局状态和当前命令进入 Query，每个关节检索自己的五帧历史，摘要层固定做全身融合。保留 IMU 的任务没有步态相位。训练入口是 `train_effort_joint_xattn.sh`。
+这些任务使用同一套 actor：可学习关节身份、当前全局状态和当前命令进入 Query，每个关节检索自己的五帧历史，摘要层固定做全身融合。保留 IMU 的任务没有步态相位。`NoCurr` 去掉命令速度课程，采样范围保持 `lin_vel_x=(-2, 2)`、`lin_vel_y=(-1, 1)`、`ang_vel_z=(-1, 1)`。同样的观测和命令范围也有时间自注意力版本：`Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-TimeMHA-NoCurr-ObsNorm`。训练入口 `train_effort_joint_xattn.sh` 指向无课程的 GroupTimeFusion 任务。
 
 ## 运行
 
