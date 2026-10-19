@@ -285,7 +285,6 @@ def make_effort_env_cfg() -> ManagerBasedRlEnvCfg:
       func=mdp.track_linear_velocity,
       weight=10.0,
       params={"command_name": "twist", "std": 0.35},
-      # params={"command_name": "twist", "std": math.sqrt(0.25)},
     ),
     "track_angular_velocity": RewardTermCfg(
       func=mdp.track_angular_velocity,
@@ -335,20 +334,6 @@ def make_effort_env_cfg() -> ManagerBasedRlEnvCfg:
       weight=-1.0,
       params={"asset_cfg": SceneEntityCfg("robot", joint_names=())},
     ),
-    # mjlab speed-dependent pose. Disabled; Isaac L1 split does not pin hip pitch / knee.
-    # "pose": RewardTermCfg(
-    #   func=mdp.variable_posture,
-    #   weight=1.0,
-    #   params={
-    #     "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
-    #     "command_name": "twist",
-    #     "std_standing": {},  # Set per-robot.
-    #     "std_walking": {},  # Set per-robot.
-    #     "std_running": {},  # Set per-robot.
-    #     "walking_threshold": 0.1,
-    #     "running_threshold": 1.5,
-    #   },
-    # ),
     "stand_still": RewardTermCfg(
       func=mdp.stand_still,
       weight=-1.0,
@@ -361,11 +346,11 @@ def make_effort_env_cfg() -> ManagerBasedRlEnvCfg:
     "base_height": RewardTermCfg(
       func=mdp.base_height_l2,
       weight=-10.0,
-      params={"target_height": 0.0, "deadzone": 0.02},
+      params={"target_height": 0.0, "deadzone": 0.02},  # Set per-robot.
     ),
     "foot_gait": RewardTermCfg(
       func=mdp.feet_gait,
-      weight=5.0,            # 保持，相位钟是主约束
+      weight=5.0,  # 保持，相位钟是主约束
       params={
         "period": 0.6,
         "offset": [0.0, 0.5],
@@ -373,17 +358,17 @@ def make_effort_env_cfg() -> ManagerBasedRlEnvCfg:
         "command_threshold": 0.1,
         "command_name": "twist",
         "sensor_name": "feet_ground_contact",
-      }
+      },
     ),
     "feet_air_time": RewardTermCfg(
       func=mdp.feet_air_time,
       weight=2.0,
       params={
         "sensor_name": "feet_ground_contact",
-        "threshold": 0.30,   # 不用改，这个值其实是歪打正着
+        "threshold": 0.30,  # 不用改，这个值其实是歪打正着
         "command_name": "twist",
         "command_threshold": 0.1,
-      }
+      },
     ),
     "foot_clearance": RewardTermCfg(
       func=mdp.feet_clearance,

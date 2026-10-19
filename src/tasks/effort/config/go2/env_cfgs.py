@@ -96,22 +96,6 @@ def unitree_go2_rough_env_cfg(
   cfg.rewards["joint_deviation_legs"].params["asset_cfg"].joint_names = (
     ".*_hip_joint",
   )
-  # mjlab speed-dependent pose. Disabled; Isaac L1 split does not pin hip pitch / knee.
-  # cfg.rewards["pose"].params["std_standing"] = {
-  #   r".*(FR|FL|RR|RL)_hip_joint.*": 0.05,
-  #   r".*(FR|FL|RR|RL)_thigh_joint.*": 0.1,
-  #   r".*(FR|FL|RR|RL)_calf_joint.*": 0.15,
-  # }
-  # cfg.rewards["pose"].params["std_walking"] = {
-  #   r".*(FR|FL|RR|RL)_hip_joint.*": 0.15,
-  #   r".*(FR|FL|RR|RL)_thigh_joint.*": 0.35,
-  #   r".*(FR|FL|RR|RL)_calf_joint.*": 0.5,
-  # }
-  # cfg.rewards["pose"].params["std_running"] = {
-  #   r".*(FR|FL|RR|RL)_hip_joint.*": 0.15,
-  #   r".*(FR|FL|RR|RL)_thigh_joint.*": 0.35,
-  #   r".*(FR|FL|RR|RL)_calf_joint.*": 0.5,
-  # }
   cfg.rewards["base_height"].params["target_height"] = 0.32
 
   cfg.viewer.body_name = "base_link"
