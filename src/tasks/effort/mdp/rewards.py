@@ -231,7 +231,7 @@ def feet_air_time(
   mode_time = torch.min(torch.where(single_stance.unsqueeze(-1), in_mode_time, 0.0), dim=1)[0]
   error = torch.abs(mode_time - threshold)
   reward = torch.clamp(threshold - error, min=0.0)
-  reward = reward / threshold # 防止权重和量级脱钩
+  reward = reward / threshold  # 防止权重和量级脱钩
   if command_name is not None:
     command = env.command_manager.get_command(command_name)
     if command is not None:
@@ -272,30 +272,30 @@ def feet_clearance(
 
 
 def feet_gait(
-        env: ManagerBasedRlEnv,
-        period: float,
-        offset: list[float],
-        threshold: float,
-        command_threshold: float,
-        command_name: str,
-        sensor_name: str,
+  env: ManagerBasedRlEnv,
+  period: float,
+  offset: list[float],
+  threshold: float,
+  command_threshold: float,
+  command_name: str,
+  sensor_name: str,
 ) -> torch.Tensor:
-    sensor: ContactSensor = env.scene[sensor_name]
-    is_contact = sensor.data.current_contact_time > 0
-    global_phase = ((env.episode_length_buf * env.step_dt) / period).unsqueeze(1)
-    offsets = torch.as_tensor(offset, device=env.device, dtype=global_phase.dtype).view(1, -1)
-    leg_phase = (global_phase + offsets) % 1.0
-    is_stance = (leg_phase < threshold)
-    reward = (is_stance == is_contact).float().mean(dim=1)
-    if command_name is not None:
-        command = env.command_manager.get_command(command_name)
-        if command is not None:
-            linear_norm = torch.norm(command[:, :2], dim=1)
-            angular_norm = torch.abs(command[:, 2])
-            total_command = linear_norm + angular_norm
-            scale = (total_command > command_threshold).float()
-            reward *= scale
-    return reward
+  sensor: ContactSensor = env.scene[sensor_name]
+  is_contact = sensor.data.current_contact_time > 0
+  global_phase = ((env.episode_length_buf * env.step_dt) / period).unsqueeze(1)
+  offsets = torch.as_tensor(offset, device=env.device, dtype=global_phase.dtype)
+  leg_phase = (global_phase + offsets.view(1, -1)) % 1.0
+  is_stance = leg_phase < threshold
+  reward = (is_stance == is_contact).float().mean(dim=1)
+  if command_name is not None:
+    command = env.command_manager.get_command(command_name)
+    if command is not None:
+      linear_norm = torch.norm(command[:, :2], dim=1)
+      angular_norm = torch.abs(command[:, 2])
+      total_command = linear_norm + angular_norm
+      scale = (total_command > command_threshold).float()
+      reward *= scale
+  return reward
 
 
 class feet_swing_height:

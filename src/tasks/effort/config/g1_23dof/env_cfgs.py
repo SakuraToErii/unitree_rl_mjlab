@@ -98,36 +98,6 @@ def unitree_g1_23dof_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     ".*_hip_roll_joint",
     ".*_hip_yaw_joint",
   )
-  # mjlab speed-dependent pose. Disabled; Isaac L1 split does not pin hip pitch / knee.
-  # cfg.rewards["pose"].params["std_standing"] = {".*": 0.05}
-  # cfg.rewards["pose"].params["std_walking"] = {
-  #   r".*hip_pitch.*": 0.5,
-  #   r".*hip_roll.*": 0.15,
-  #   r".*hip_yaw.*": 0.15,
-  #   r".*knee.*": 0.5,
-  #   r".*ankle_pitch.*": 0.15,
-  #   r".*ankle_roll.*": 0.1,
-  #   r".*waist_yaw.*": 0.15,
-  #   r".*shoulder_pitch.*": 0.15,
-  #   r".*shoulder_roll.*": 0.1,
-  #   r".*shoulder_yaw.*": 0.1,
-  #   r".*elbow.*": 0.1,
-  #   r".*wrist.*": 0.1,
-  # }
-  # cfg.rewards["pose"].params["std_running"] = {
-  #   r".*hip_pitch.*": 0.5,
-  #   r".*hip_roll.*": 0.25,
-  #   r".*hip_yaw.*": 0.25,
-  #   r".*knee.*": 0.5,
-  #   r".*ankle_pitch.*": 0.25,
-  #   r".*ankle_roll.*": 0.1,
-  #   r".*waist_yaw.*": 0.25,
-  #   r".*shoulder_pitch.*": 0.25,
-  #   r".*shoulder_roll.*": 0.1,
-  #   r".*shoulder_yaw.*": 0.1,
-  #   r".*elbow.*": 0.1,
-  #   r".*wrist.*": 0.1,
-  # }
   cfg.rewards["base_height"].params["target_height"] = 0.79
 
   cfg.viewer.body_name = "torso_link"

@@ -6,7 +6,12 @@ from pathlib import Path
 import numpy as np
 
 _SCRIPT_PATH = (
-  Path(__file__).parents[1] / "scripts" / "visualize_npz_foot_penetration.py"
+  Path(__file__).parents[1]
+  / "src"
+  / "tasks"
+  / "tracking"
+  / "scripts"
+  / "visualize_npz_foot_penetration.py"
 )
 _SPEC = importlib.util.spec_from_file_location(
   "visualize_npz_foot_penetration", _SCRIPT_PATH

@@ -32,15 +32,26 @@ _EFFORT_DISTRIBUTION_CFG = {
 }
 
 
-def unitree_g1_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
-  """Create residual-effort PPO runner configuration for Unitree G1."""
+def _residual_actor_cfg(
+  actor_cfg_cls: type[ResidualMlpModelCfg],
+) -> ResidualMlpModelCfg:
+  """Create the residual actor shared by the MLP and MHA runners."""
+  return actor_cfg_cls(
+    hidden_dims=(512, 256, 128),
+    activation="elu",
+    obs_normalization=True,
+    distribution_cfg=dict(_EFFORT_DISTRIBUTION_CFG),
+  )
+
+
+def _effort_runner_cfg(
+  actor: RslRlModelCfg,
+  experiment_name: str,
+  max_iterations: int,
+) -> RslRlOnPolicyRunnerCfg:
+  """Assemble the PPO runner shared by every G1 effort actor."""
   return RslRlOnPolicyRunnerCfg(
-    actor=ResidualMlpModelCfg(
-      hidden_dims=(512, 256, 128),
-      activation="elu",
-      obs_normalization=True,
-      distribution_cfg=dict(_EFFORT_DISTRIBUTION_CFG),
-    ),
+    actor=actor,
     critic=RslRlModelCfg(
       hidden_dims=(512, 256, 128),
       activation="elu",
@@ -60,45 +71,24 @@ def unitree_g1_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
       desired_kl=0.01,
       max_grad_norm=1.0,
     ),
-    experiment_name="g1_effort",
+    experiment_name=experiment_name,
     save_interval=100,
     num_steps_per_env=24,
-    max_iterations=50_000,
+    max_iterations=max_iterations,
+  )
+
+
+def unitree_g1_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
+  """Create residual-effort PPO runner configuration for Unitree G1."""
+  return _effort_runner_cfg(
+    _residual_actor_cfg(ResidualMlpModelCfg), "g1_effort", 50_000
   )
 
 
 def unitree_g1_ppo_mha_runner_cfg() -> RslRlOnPolicyRunnerCfg:
   """Create residual-effort MHA PPO runner configuration for Unitree G1."""
-  return RslRlOnPolicyRunnerCfg(
-    actor=ResidualMhaModelCfg(
-      hidden_dims=(512, 256, 128),
-      activation="elu",
-      obs_normalization=True,
-      distribution_cfg=dict(_EFFORT_DISTRIBUTION_CFG),
-    ),
-    critic=RslRlModelCfg(
-      hidden_dims=(512, 256, 128),
-      activation="elu",
-      obs_normalization=True,
-    ),
-    algorithm=RslRlPpoAlgorithmCfg(
-      value_loss_coef=1.0,
-      use_clipped_value_loss=True,
-      clip_param=0.2,
-      entropy_coef=0.001,
-      num_learning_epochs=5,
-      num_mini_batches=4,
-      learning_rate=1.0e-3,
-      schedule="adaptive",
-      gamma=0.99,
-      lam=0.95,
-      desired_kl=0.01,
-      max_grad_norm=1.0,
-    ),
-    experiment_name="g1_effort_mha",
-    save_interval=100,
-    num_steps_per_env=24,
-    max_iterations=10_000,
+  return _effort_runner_cfg(
+    _residual_actor_cfg(ResidualMhaModelCfg), "g1_effort_mha", 10_000
   )
 
 
@@ -136,43 +126,19 @@ def unitree_g1_ppo_group_time_runner_cfg(
 ) -> RslRlOnPolicyRunnerCfg:
   """Create the conditional group-time PPO runner. Summary fusion is always on."""
   term_dims, joint_pos_names, action_names = g1_actor_cross_attn_layout(env_cfg)
-  return RslRlOnPolicyRunnerCfg(
-    actor=ResidualGroupTimeModelCfg(
-      hidden_dims=(320, 160),
-      activation="elu",
-      obs_normalization=True,
-      distribution_cfg=dict(_EFFORT_DISTRIBUTION_CFG),
-      history_length=5,
-      num_heads=4,
-      encoder_hidden_dim=64,
-      joint_attention_dim=32,
-      joint_attention_heads=4,
-      joint_attention_output_dim=64,
-      term_dims=term_dims,
-      joint_pos_names=joint_pos_names,
-      action_names=action_names,
-    ),
-    critic=RslRlModelCfg(
-      hidden_dims=(512, 256, 128),
-      activation="elu",
-      obs_normalization=True,
-    ),
-    algorithm=RslRlPpoAlgorithmCfg(
-      value_loss_coef=1.0,
-      use_clipped_value_loss=True,
-      clip_param=0.2,
-      entropy_coef=0.001,
-      num_learning_epochs=5,
-      num_mini_batches=4,
-      learning_rate=1.0e-3,
-      schedule="adaptive",
-      gamma=0.99,
-      lam=0.95,
-      desired_kl=0.01,
-      max_grad_norm=1.0,
-    ),
-    experiment_name="g1_effort_group_time_fusion",
-    save_interval=100,
-    num_steps_per_env=24,
-    max_iterations=10_000,
+  actor = ResidualGroupTimeModelCfg(
+    hidden_dims=(320, 160),
+    activation="elu",
+    obs_normalization=True,
+    distribution_cfg=dict(_EFFORT_DISTRIBUTION_CFG),
+    history_length=5,
+    num_heads=4,
+    encoder_hidden_dim=64,
+    joint_attention_dim=32,
+    joint_attention_heads=4,
+    joint_attention_output_dim=64,
+    term_dims=term_dims,
+    joint_pos_names=joint_pos_names,
+    action_names=action_names,
   )
+  return _effort_runner_cfg(actor, "g1_effort_group_time_fusion", 10_000)

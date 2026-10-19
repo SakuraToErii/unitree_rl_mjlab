@@ -17,9 +17,7 @@ from mjlab.utils.os import dump_yaml, get_checkpoint_path, get_wandb_checkpoint_
 from mjlab.utils.torch import configure_torch_backends
 from mjlab.utils.wrappers import VideoRecorder
 
-from src.tasks.tracking.mdp import MotionCommandCfg as TrackingMotionCommandCfg
-
-_MOTION_COMMAND_CFG_TYPES = (TrackingMotionCommandCfg,)
+from src.tasks.tracking.mdp import MotionCommandCfg
 
 
 @dataclass(frozen=True)
@@ -71,12 +69,12 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
 
   # Check if this is a tracking task by checking for motion command.
   is_tracking_task = "motion" in cfg.env.commands and isinstance(
-    cfg.env.commands["motion"], _MOTION_COMMAND_CFG_TYPES
+    cfg.env.commands["motion"], MotionCommandCfg
   )
 
   if is_tracking_task:
     motion_cmd = cfg.env.commands["motion"]
-    assert isinstance(motion_cmd, _MOTION_COMMAND_CFG_TYPES)
+    assert isinstance(motion_cmd, MotionCommandCfg)
     if not cfg.motion_file:
       raise ValueError("Tracking tasks require --motion-file /path/to/motion.npz.")
     motion_path = Path(cfg.motion_file).expanduser().resolve()

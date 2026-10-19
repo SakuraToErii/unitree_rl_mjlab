@@ -18,10 +18,14 @@ _EFFORT_DISTRIBUTION_CFG = {
 }
 
 
-def unitree_g1_23dof_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
-  """Create residual-effort PPO runner configuration for Unitree G1-23DOF."""
+def _effort_runner_cfg(
+  actor_cfg_cls: type[ResidualMlpModelCfg],
+  experiment_name: str,
+  max_iterations: int,
+) -> RslRlOnPolicyRunnerCfg:
+  """Assemble the PPO runner shared by the MLP and MHA actors."""
   return RslRlOnPolicyRunnerCfg(
-    actor=ResidualMlpModelCfg(
+    actor=actor_cfg_cls(
       hidden_dims=(512, 256, 128),
       activation="elu",
       obs_normalization=True,
@@ -46,43 +50,18 @@ def unitree_g1_23dof_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
       desired_kl=0.01,
       max_grad_norm=1.0,
     ),
-    experiment_name="g1_23dof_effort",
+    experiment_name=experiment_name,
     save_interval=100,
     num_steps_per_env=24,
-    max_iterations=50_000,
+    max_iterations=max_iterations,
   )
+
+
+def unitree_g1_23dof_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
+  """Create residual-effort PPO runner configuration for Unitree G1-23DOF."""
+  return _effort_runner_cfg(ResidualMlpModelCfg, "g1_23dof_effort", 50_000)
 
 
 def unitree_g1_23dof_ppo_mha_runner_cfg() -> RslRlOnPolicyRunnerCfg:
   """Create residual-effort MHA PPO runner configuration for Unitree G1-23DOF."""
-  return RslRlOnPolicyRunnerCfg(
-    actor=ResidualMhaModelCfg(
-      hidden_dims=(512, 256, 128),
-      activation="elu",
-      obs_normalization=True,
-      distribution_cfg=dict(_EFFORT_DISTRIBUTION_CFG),
-    ),
-    critic=RslRlModelCfg(
-      hidden_dims=(512, 256, 128),
-      activation="elu",
-      obs_normalization=True,
-    ),
-    algorithm=RslRlPpoAlgorithmCfg(
-      value_loss_coef=1.0,
-      use_clipped_value_loss=True,
-      clip_param=0.2,
-      entropy_coef=0.001,
-      num_learning_epochs=5,
-      num_mini_batches=4,
-      learning_rate=1.0e-3,
-      schedule="adaptive",
-      gamma=0.99,
-      lam=0.95,
-      desired_kl=0.01,
-      max_grad_norm=1.0,
-    ),
-    experiment_name="g1_23dof_effort_mha",
-    save_interval=100,
-    num_steps_per_env=24,
-    max_iterations=10_000,
-  )
+  return _effort_runner_cfg(ResidualMhaModelCfg, "g1_23dof_effort_mha", 10_000)
