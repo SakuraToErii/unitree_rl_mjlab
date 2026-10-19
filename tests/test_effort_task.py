@@ -87,6 +87,7 @@ G1_EFFORT_TASK_IDS = (
   "Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-CmdCurr-ObsNorm",
   "Unitree-G1-Effort-0PD-Flat-NoIMU-JPos-NoJVel-H5-MLP-CmdCurr-ObsNorm",
   "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-MLP-CmdCurr-ObsNorm",
+  "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-MLP-NoCurr-ObsNorm",
   "Unitree-G1-Effort-0PD-Flat-NoIMU-JPos-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm",
   "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm",
   "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-TimeMHA-NoCurr-ObsNorm",
@@ -687,6 +688,25 @@ class EffortTaskTest(unittest.TestCase):
       load_rl_cfg("Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm").actor.class_name.endswith(
         ":ResidualMhaModel"
       )
+    )
+    no_curr_mlp = load_env_cfg(
+      "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-MLP-NoCurr-ObsNorm"
+    )
+    self.assertNotIn("command_vel", no_curr_mlp.curriculum)
+    self.assertNotIn("terrain_levels", no_curr_mlp.curriculum)
+    self.assertEqual(no_curr_mlp.commands["twist"].ranges.lin_vel_x, (-2.0, 2.0))
+    self.assertEqual(no_curr_mlp.commands["twist"].ranges.lin_vel_y, (-1.0, 1.0))
+    self.assertEqual(no_curr_mlp.commands["twist"].ranges.ang_vel_z, (-1.0, 1.0))
+    self.assertEqual(
+      set(no_curr_mlp.observations["actor"].terms),
+      set(cfg.observations["actor"].terms),
+    )
+    self.assertEqual(no_curr_mlp.observations["actor"].history_length, 5)
+    self.assertTrue(no_curr_mlp.observations["actor"].flatten_history_dim)
+    self.assertTrue(
+      load_rl_cfg(
+        "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-MLP-NoCurr-ObsNorm"
+      ).actor.class_name.endswith(":ResidualMlpModel")
     )
     no_curr_mha = load_env_cfg(
       "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-TimeMHA-NoCurr-ObsNorm"

@@ -45,7 +45,7 @@
 | 同上，速度命令从第 0 步就是满量程 | `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-GroupTimeFusion-NoCurr-ObsNorm` |
 | 无 IMU、隐藏踝位置、无关节速度 | `Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-GroupTimeFusion-CmdCurr-ObsNorm` |
 
-这些任务使用同一套 actor：可学习关节身份、当前全局状态和当前命令进入 Query，每个关节检索自己的五帧历史，摘要层固定做全身融合。保留 IMU 的任务没有步态相位。`NoCurr` 去掉命令速度课程，采样范围保持 `lin_vel_x=(-2, 2)`、`lin_vel_y=(-1, 1)`、`ang_vel_z=(-1, 1)`。同样的观测和命令范围也有时间自注意力版本：`Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-TimeMHA-NoCurr-ObsNorm`。训练入口 `train_effort_joint_xattn.sh` 指向无课程的 GroupTimeFusion 任务。
+这些任务使用同一套 actor：可学习关节身份、当前全局状态和当前命令进入 Query，每个关节检索自己的五帧历史，摘要层固定做全身融合。保留 IMU 的任务没有步态相位。`NoCurr` 去掉命令速度课程，采样范围保持 `lin_vel_x=(-2, 2)`、`lin_vel_y=(-1, 1)`、`ang_vel_z=(-1, 1)`。同样的观测和命令范围也有 MLP 版本 `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-MLP-NoCurr-ObsNorm`，以及时间自注意力版本 `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-TimeMHA-NoCurr-ObsNorm`。训练入口 `train_effort_joint_xattn.sh` 指向无课程的 MLP 任务。
 
 ## 运行
 
