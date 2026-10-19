@@ -14,6 +14,7 @@ from mjlab.actuator import IdealPdActuatorCfg
 from mjlab.entity import Entity
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.envs.mdp.actions import JointEffortActionCfg, JointPositionActionCfg
+from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.rl.exporter_utils import get_base_metadata
 from mjlab.tasks.registry import list_tasks, load_env_cfg, load_rl_cfg
 from mjlab.utils.lab_api.string import resolve_matching_names_values
@@ -35,6 +36,7 @@ from src.tasks.effort.config.g1.action_cfg import (
   g1_effort_action_cfg,
 )
 from src.tasks.effort.config.g1.env_cfgs import (
+  G1_SPEED_POSTURE_GROUPS,
   unitree_g1_flat_env_cfg,
   unitree_g1_flat_mha_env_cfg,
   unitree_g1_flat_partial_env_cfg,
@@ -65,6 +67,11 @@ from src.tasks.effort.rl.models import ResidualMhaModel, ResidualMlpModel
 from src.tasks.effort.rl.runner import get_effort_metadata
 from src.tasks.effort.zero_pd import EFFORT_ACTION_SCALE_FRACTION
 
+G1_SPEED_POSTURE_TASK_IDS = (
+  "Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-SpeedPose-CmdCurr-ObsNorm",
+  "Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-MLP-SpeedPose-CmdCurr-ObsNorm",
+)
+
 G1_EFFORT_TASK_IDS = (
   "Unitree-G1-Effort-0PD-Rough-IMU-JPos-JVel-Phase-HeightScan-H5-MLP-CmdCurr-TerrainCurr-ObsNorm",
   "Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-CmdCurr-ObsNorm",
@@ -74,6 +81,13 @@ G1_EFFORT_TASK_IDS = (
   "Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm",
   "Unitree-G1-Effort-0PD-Rough-IMU-JPos-JVel-Phase-HeightScan-H5-TimeMHA-CmdCurr-TerrainCurr-ObsNorm",
   "Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-TimeMHA-CmdCurr-ObsNorm",
+  *G1_SPEED_POSTURE_TASK_IDS,
+)
+
+# L1 control for each speed-posture task, in the same order.
+G1_SPEED_POSTURE_CONTROL_IDS = (
+  "Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-CmdCurr-ObsNorm",
+  "Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-MLP-CmdCurr-ObsNorm",
 )
 
 _G1_ANKLE_JOINTS = (
@@ -513,6 +527,118 @@ class EffortTaskTest(unittest.TestCase):
       ),
       torch.full((2,), 0.02**2),
     )
+
+  def test_speed_blended_posture_blends_std_without_jumps(self) -> None:
+    asset = SimpleNamespace(
+      find_joints=lambda names: ([0, 1], ["a_joint", "b_joint"]),
+      data=SimpleNamespace(
+        default_joint_pos=torch.zeros(5, 2),
+        joint_pos=torch.full((5, 2), 0.1),
+      ),
+    )
+    command = torch.tensor(
+      [
+        [0.0, 0.0, 0.0],  # Standing.
+        [1.0, 0.0, 0.0],  # Walking.
+        [1.5, 0.0, 0.0],  # Halfway through run_blend.
+        [2.0, 0.0, 0.0],  # Running.
+        [0.0, 0.0, 1.0],  # Turning in place counts as walking, not running.
+      ]
+    )
+    env = Mock(spec=ManagerBasedRlEnv)
+    env.device = "cpu"
+    env.scene = {"robot": asset}
+    env.command_manager = SimpleNamespace(get_command=lambda name: command)
+    params = {
+      "asset_cfg": mdp.SceneEntityCfg("robot", joint_names=(".*",)),
+      "command_name": "twist",
+      "std_standing": {".*": 0.1},
+      "std_walking": {"a_joint": 0.5, "b_joint": 0.3},
+      "std_running": {".*": 0.9},
+      "move_blend": (0.05, 0.25),
+      "run_blend": (1.2, 1.8),
+    }
+    term = mdp.speed_blended_posture(
+      RewardTermCfg(func=mdp.speed_blended_posture, weight=1.0, params=params), env
+    )
+
+    std = torch.tensor(
+      [[0.1, 0.1], [0.5, 0.3], [0.7, 0.6], [0.9, 0.9], [0.5, 0.3]]
+    )
+    expected = torch.exp(-torch.mean(0.01 / std**2, dim=1))
+    torch.testing.assert_close(term(env, **params), expected)
+
+    asset.data.joint_pos.zero_()
+    torch.testing.assert_close(term(env, **params), torch.ones(5))
+
+    asset.data.joint_pos.fill_(0.1)
+    for edge in (*params["move_blend"], *params["run_blend"]):
+      command.zero_()
+      command[0, 0] = edge - 1.0e-4
+      command[1, 0] = edge + 1.0e-4
+      reward = term(env, **params)
+      torch.testing.assert_close(reward[0], reward[1], atol=1.0e-3, rtol=0.0)
+
+    params["std_running"] = {"a_joint": 0.9}
+    with self.assertRaisesRegex(ValueError, "b_joint"):
+      mdp.speed_blended_posture(
+        RewardTermCfg(func=mdp.speed_blended_posture, weight=1.0, params=params),
+        env,
+      )
+
+  def test_speed_posture_variants_only_swap_posture_terms(self) -> None:
+    joint_names = list(Entity(get_g1_effort_robot_cfg()).joint_names)
+    removed = {
+      "joint_deviation_arms",
+      "joint_deviation_waists",
+      "joint_deviation_legs",
+      "stand_still",
+    }
+    added = {f"posture_{group}" for group in G1_SPEED_POSTURE_GROUPS}
+
+    for task_id, control_id in zip(
+      G1_SPEED_POSTURE_TASK_IDS, G1_SPEED_POSTURE_CONTROL_IDS, strict=True
+    ):
+      cfg = load_env_cfg(task_id)
+      control = load_env_cfg(control_id)
+      self.assertEqual(set(cfg.rewards), (set(control.rewards) - removed) | added)
+      for name in set(control.rewards) - removed:
+        self.assertIs(cfg.rewards[name].func, control.rewards[name].func, name)
+        self.assertEqual(cfg.rewards[name].weight, control.rewards[name].weight, name)
+      self.assertEqual(cfg.rewards["is_terminated"].weight, -200.0)
+      self.assertEqual(
+        cfg.observations["actor"].terms.keys(),
+        control.observations["actor"].terms.keys(),
+      )
+
+      covered = []
+      for group, (weight, stds) in G1_SPEED_POSTURE_GROUPS.items():
+        term = cfg.rewards[f"posture_{group}"]
+        self.assertIs(term.func, mdp.speed_blended_posture)
+        self.assertEqual(term.weight, weight)
+        self.assertGreater(weight, 0.0)
+        for expr, (stand, walk, run) in stds.items():
+          self.assertLessEqual(stand, walk, expr)
+          self.assertLessEqual(walk, run, expr)
+        covered += [
+          name
+          for name in joint_names
+          if any(re.fullmatch(expr, name) for expr in term.params["asset_cfg"].joint_names)
+        ]
+      self.assertEqual(sorted(covered), sorted(joint_names))
+
+  def test_speed_posture_env_steps_with_finite_rewards(self) -> None:
+    cfg = load_env_cfg(G1_SPEED_POSTURE_TASK_IDS[0])
+    cfg.scene.num_envs = 2
+    env = ManagerBasedRlEnv(cfg, device="cpu")
+    try:
+      env.reset()
+      _, reward, *_ = env.step(torch.zeros(2, env.action_manager.total_action_dim))
+      self.assertTrue(torch.isfinite(reward).all())
+      for group in G1_SPEED_POSTURE_GROUPS:
+        self.assertIn(f"posture_{group}", env.reward_manager.active_terms)
+    finally:
+      env.close()
 
   def test_mha_variants_only_add_observation_history(self) -> None:
     pairs = (

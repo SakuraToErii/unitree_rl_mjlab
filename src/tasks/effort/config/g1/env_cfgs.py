@@ -22,10 +22,49 @@ from src.tasks.effort.config.g1.robot_cfg import (
   get_g1_effort_robot_cfg,
 )
 from src.tasks.effort.velocity_env_cfg import (
+  PostureGroups,
   enable_mha_history,
   enable_partial_actor_obs,
+  enable_speed_posture,
   make_effort_env_cfg,
 )
+
+# std in rad as (standing, walking, running). Sagittal legs open up the most
+# with speed; frontal legs and waist stay tight; arms loosen for swing.
+G1_SPEED_POSTURE_GROUPS: PostureGroups = {
+  "legs_sagittal": (
+    1.5,
+    {
+      r".*_hip_pitch_joint": (0.10, 0.50, 0.80),
+      r".*_knee_joint": (0.10, 0.50, 0.80),
+      r".*_ankle_pitch_joint": (0.10, 0.25, 0.40),
+    },
+  ),
+  "legs_frontal": (
+    1.5,
+    {
+      r".*_hip_roll_joint": (0.05, 0.15, 0.25),
+      r".*_hip_yaw_joint": (0.05, 0.15, 0.25),
+      r".*_ankle_roll_joint": (0.05, 0.10, 0.15),
+    },
+  ),
+  "waist": (
+    1.0,
+    {
+      r"waist_yaw_joint": (0.05, 0.15, 0.20),
+      r"waist_(roll|pitch)_joint": (0.05, 0.08, 0.10),
+    },
+  ),
+  "arms": (
+    0.5,
+    {
+      r".*_shoulder_pitch_joint": (0.10, 0.30, 0.60),
+      r".*_shoulder_(roll|yaw)_joint": (0.05, 0.10, 0.15),
+      r".*_elbow_joint": (0.10, 0.30, 0.50),
+      r".*_wrist_.*_joint": (0.10, 0.20, 0.30),
+    },
+  ),
+}
 
 
 def unitree_g1_rough_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
@@ -247,6 +286,22 @@ def unitree_g1_flat_partial_phase1_env_cfg(play: bool = False) -> ManagerBasedRl
     ),
   )
   return cfg
+
+
+def unitree_g1_flat_speed_posture_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Flat full-obs task with speed-blended posture groups in place of L1."""
+  return enable_speed_posture(
+    unitree_g1_flat_env_cfg(play=play), G1_SPEED_POSTURE_GROUPS
+  )
+
+
+def unitree_g1_flat_partial_phase1_speed_posture_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Flat partial phase-1 task with speed-blended posture groups."""
+  return enable_speed_posture(
+    unitree_g1_flat_partial_phase1_env_cfg(play=play), G1_SPEED_POSTURE_GROUPS
+  )
 
 
 def unitree_g1_flat_partial_mha_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:

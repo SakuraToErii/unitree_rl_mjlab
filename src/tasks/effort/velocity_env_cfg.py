@@ -524,3 +524,42 @@ def enable_partial_actor_obs(cfg: ManagerBasedRlEnvCfg) -> ManagerBasedRlEnvCfg:
   for term_name in _PARTIAL_ACTOR_DROP_TERMS:
     actor_obs.terms.pop(term_name, None)
   return cfg
+
+
+_L1_POSTURE_TERMS = (
+  "joint_deviation_arms",
+  "joint_deviation_waists",
+  "joint_deviation_legs",
+  "stand_still",
+)
+
+# (weight, {joint_regex: (std_standing, std_walking, std_running)}) per group.
+PostureGroups = dict[str, tuple[float, dict[str, tuple[float, float, float]]]]
+
+
+def enable_speed_posture(
+  cfg: ManagerBasedRlEnvCfg, groups: PostureGroups
+) -> ManagerBasedRlEnvCfg:
+  """Swap the L1 pose split and stand_still for speed-blended posture groups.
+
+  The standing std of each group takes over stand_still's job, so both are
+  removed together. is_terminated and every other term stay as in the L1
+  control so the two variants differ only in the posture terms.
+  """
+  for term_name in _L1_POSTURE_TERMS:
+    cfg.rewards.pop(term_name, None)
+  for group_name, (weight, stds) in groups.items():
+    cfg.rewards[f"posture_{group_name}"] = RewardTermCfg(
+      func=mdp.speed_blended_posture,
+      weight=weight,
+      params={
+        "asset_cfg": SceneEntityCfg("robot", joint_names=tuple(stds)),
+        "command_name": "twist",
+        "std_standing": {name: std[0] for name, std in stds.items()},
+        "std_walking": {name: std[1] for name, std in stds.items()},
+        "std_running": {name: std[2] for name, std in stds.items()},
+        "move_blend": (0.05, 0.25),
+        "run_blend": (1.2, 1.8),
+      },
+    )
+  return cfg

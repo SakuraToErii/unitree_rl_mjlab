@@ -496,6 +496,73 @@ class variable_posture:
     return torch.exp(-torch.mean(error_squared / (std**2), dim=1))
 
 
+def _smoothstep(x: torch.Tensor, edges: tuple[float, float]) -> torch.Tensor:
+  lo, hi = edges
+  t = torch.clamp((x - lo) / (hi - lo), 0.0, 1.0)
+  return t * t * (3.0 - 2.0 * t)
+
+
+class speed_blended_posture:
+  """Gaussian pose reward whose per-joint tolerance blends with command speed.
+
+  ``std`` moves stand -> walk over ``move_blend`` on ``|v_xy| + |w_z|`` and
+  walk -> run over ``run_blend`` on ``|v_xy|`` only, both via smoothstep, so
+  tolerance has no jumps at regime boundaries. Use one term per joint group:
+  the per-term mean keeps one bad joint from being diluted by the whole body.
+  The reward is ``exp(-mean(error² / std²))``.
+  """
+
+  def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
+    asset_cfg: SceneEntityCfg = cfg.params["asset_cfg"]
+    asset: Entity = env.scene[asset_cfg.name]
+    default_joint_pos = asset.data.default_joint_pos
+    assert default_joint_pos is not None
+    self.default_joint_pos = default_joint_pos
+    _, joint_names = asset.find_joints(asset_cfg.joint_names)
+
+    def _resolve(key: str) -> torch.Tensor:
+      _, names, values = resolve_matching_names_values(
+        data=cfg.params[key], list_of_strings=joint_names
+      )
+      if list(names) != list(joint_names):
+        missing = sorted(set(joint_names) - set(names))
+        raise ValueError(f"{key} has no std for joints {missing}")
+      return torch.tensor(values, device=env.device, dtype=torch.float32)
+
+    self.std_standing = _resolve("std_standing")
+    self.std_walking = _resolve("std_walking")
+    self.std_running = _resolve("std_running")
+
+  def __call__(
+    self,
+    env: ManagerBasedRlEnv,
+    std_standing,
+    std_walking,
+    std_running,
+    asset_cfg: SceneEntityCfg,
+    command_name: str,
+    move_blend: tuple[float, float] = (0.05, 0.25),
+    run_blend: tuple[float, float] = (1.2, 1.8),
+  ) -> torch.Tensor:
+    del std_standing, std_walking, std_running  # Resolved in __init__.
+
+    asset: Entity = env.scene[asset_cfg.name]
+    command = env.command_manager.get_command(command_name)
+    assert command is not None
+
+    linear_speed = torch.norm(command[:, :2], dim=1)
+    total_speed = linear_speed + torch.abs(command[:, 2])
+    move = _smoothstep(total_speed, move_blend).unsqueeze(1)
+    run = _smoothstep(linear_speed, run_blend).unsqueeze(1)
+    std_moving = torch.lerp(self.std_walking, self.std_running, run)
+    std = torch.lerp(self.std_standing.expand_as(std_moving), std_moving, move)
+
+    current_joint_pos = asset.data.joint_pos[:, asset_cfg.joint_ids]
+    desired_joint_pos = self.default_joint_pos[:, asset_cfg.joint_ids]
+    error_squared = torch.square(current_joint_pos - desired_joint_pos)
+    return torch.exp(-torch.mean(error_squared / std**2, dim=1))
+
+
 def stand_still(
   env: ManagerBasedRlEnv,
   command_name: str,
