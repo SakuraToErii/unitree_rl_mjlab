@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
 source ./.venv/bin/activate
-python scripts/train.py Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-GroupTimeFusion-CmdCurr-ObsNorm \
+python scripts/train.py Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H1-MLP-NoCurr-ObsNorm \
     --gpu-ids '[0,1]' \
-    --env.scene.num-envs 4096 \
+    --env.scene.num-envs 2048 \
     --agent.max-iterations 50000 \
     --agent.save-interval 1000 \
     --agent.seed 3407 \
     --agent.logger tensorboard \
-    --agent.run-name "imu-jposnoankle-nojvel-h5-grouptimefusion"
+    --agent.run-name "imu-jposnoankle-nojvel-h1-mlp-nocurr"

@@ -88,6 +88,7 @@ G1_EFFORT_TASK_IDS = (
   "Unitree-G1-Effort-0PD-Flat-NoIMU-JPos-NoJVel-H5-MLP-CmdCurr-ObsNorm",
   "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-MLP-CmdCurr-ObsNorm",
   "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-MLP-NoCurr-ObsNorm",
+  "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H1-MLP-NoCurr-ObsNorm",
   "Unitree-G1-Effort-0PD-Flat-NoIMU-JPos-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm",
   "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm",
   "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-TimeMHA-NoCurr-ObsNorm",
@@ -706,6 +707,31 @@ class EffortTaskTest(unittest.TestCase):
     self.assertTrue(
       load_rl_cfg(
         "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-MLP-NoCurr-ObsNorm"
+      ).actor.class_name.endswith(":ResidualMlpModel")
+    )
+    h1_no_curr_mlp = load_env_cfg(
+      "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H1-MLP-NoCurr-ObsNorm"
+    )
+    self.assertNotIn("command_vel", h1_no_curr_mlp.curriculum)
+    self.assertNotIn("terrain_levels", h1_no_curr_mlp.curriculum)
+    self.assertEqual(h1_no_curr_mlp.commands["twist"].ranges.lin_vel_x, (-2.0, 2.0))
+    self.assertEqual(h1_no_curr_mlp.commands["twist"].ranges.lin_vel_y, (-1.0, 1.0))
+    self.assertEqual(h1_no_curr_mlp.commands["twist"].ranges.ang_vel_z, (-1.0, 1.0))
+    self.assertEqual(
+      set(h1_no_curr_mlp.observations["actor"].terms),
+      set(cfg.observations["actor"].terms),
+    )
+    self.assertEqual(
+      set(h1_no_curr_mlp.observations["critic"].terms),
+      set(cfg.observations["critic"].terms),
+    )
+    self.assertEqual(h1_no_curr_mlp.observations["actor"].history_length, 1)
+    self.assertEqual(h1_no_curr_mlp.observations["critic"].history_length, 1)
+    self.assertTrue(h1_no_curr_mlp.observations["actor"].flatten_history_dim)
+    self.assertTrue(h1_no_curr_mlp.observations["critic"].flatten_history_dim)
+    self.assertTrue(
+      load_rl_cfg(
+        "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H1-MLP-NoCurr-ObsNorm"
       ).actor.class_name.endswith(":ResidualMlpModel")
     )
     no_curr_mha = load_env_cfg(

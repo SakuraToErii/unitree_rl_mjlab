@@ -17,6 +17,7 @@
 | `JVel / NoJVel` | Actor 保留 / 移除直接关节速度观测 |
 | `Phase` | Actor 包含步态相位；没有此字段的任务不包含相位 |
 | `HeightScan` | Actor 包含地形高度扫描 |
+| `H1` | Actor 和 Critic 都只使用当前帧 |
 | `H5` | Actor 和 Critic 都使用五帧观测，含当前帧 |
 | `H8` | Actor 和 Critic 都使用八帧观测，含当前帧。当前没有任务使用 |
 | `MLP` | Actor 将历史按观测项展平后输入 MLP |
@@ -45,7 +46,7 @@
 | 同上，速度命令从第 0 步就是满量程 | `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-GroupTimeFusion-NoCurr-ObsNorm` |
 | 无 IMU、隐藏踝位置、无关节速度 | `Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-GroupTimeFusion-CmdCurr-ObsNorm` |
 
-这些任务使用同一套 actor：可学习关节身份、当前全局状态和当前命令进入 Query，每个关节检索自己的五帧历史，摘要层固定做全身融合。保留 IMU 的任务没有步态相位。`NoCurr` 去掉命令速度课程，采样范围保持 `lin_vel_x=(-2, 2)`、`lin_vel_y=(-1, 1)`、`ang_vel_z=(-1, 1)`。同样的观测和命令范围也有 MLP 版本 `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-MLP-NoCurr-ObsNorm`，以及时间自注意力版本 `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-TimeMHA-NoCurr-ObsNorm`。训练入口 `train_effort_joint_xattn.sh` 指向无课程的 MLP 任务。
+这些任务使用同一套 actor：可学习关节身份、当前全局状态和当前命令进入 Query，每个关节检索自己的五帧历史，摘要层固定做全身融合。保留 IMU 的任务没有步态相位。`NoCurr` 去掉命令速度课程，采样范围保持 `lin_vel_x=(-2, 2)`、`lin_vel_y=(-1, 1)`、`ang_vel_z=(-1, 1)`。同样的观测和命令范围也有 MLP 版本 `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-MLP-NoCurr-ObsNorm`，以及时间自注意力版本 `Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-TimeMHA-NoCurr-ObsNorm`。`Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H1-MLP-NoCurr-ObsNorm` 与无课程五帧 MLP 使用同一套观测项和命令范围，但 Actor 和 Critic 都只有当前帧。训练入口 `train_effort_joint_xattn.sh` 指向无课程的五帧 MLP 任务。
 
 ## 运行
 

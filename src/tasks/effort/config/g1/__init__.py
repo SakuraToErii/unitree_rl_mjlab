@@ -7,6 +7,7 @@ from .env_cfgs import (
   unitree_g1_flat_partial_mha_env_cfg,
   unitree_g1_flat_partial_no_ankle_group_time_env_cfg,
   unitree_g1_flat_partial_phase1_env_cfg,
+  unitree_g1_flat_partial_phase1_h1_no_curriculum_env_cfg,
   unitree_g1_flat_partial_phase1_no_curriculum_env_cfg,
   unitree_g1_flat_partial_phase1_group_time_env_cfg,
   unitree_g1_flat_partial_phase1_group_time_no_curriculum_env_cfg,
@@ -54,6 +55,14 @@ register_effort_task(
   task_id="Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-MLP-NoCurr-ObsNorm",
   env_cfg=_imu_mlp_no_curr_env_cfg,
   play_env_cfg=unitree_g1_flat_partial_phase1_no_curriculum_env_cfg(play=True),
+  rl_cfg=unitree_g1_ppo_runner_cfg(),
+)
+
+_imu_mlp_h1_no_curr_env_cfg = unitree_g1_flat_partial_phase1_h1_no_curriculum_env_cfg()
+register_effort_task(
+  task_id="Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H1-MLP-NoCurr-ObsNorm",
+  env_cfg=_imu_mlp_h1_no_curr_env_cfg,
+  play_env_cfg=unitree_g1_flat_partial_phase1_h1_no_curriculum_env_cfg(play=True),
   rl_cfg=unitree_g1_ppo_runner_cfg(),
 )
 

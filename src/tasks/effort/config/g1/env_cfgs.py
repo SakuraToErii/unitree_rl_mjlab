@@ -262,6 +262,18 @@ def unitree_g1_flat_partial_phase1_no_curriculum_env_cfg(
   return cfg
 
 
+def unitree_g1_flat_partial_phase1_h1_no_curriculum_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Current-frame IMU phase-1 MLP actor, with command ranges left at full scale."""
+  cfg = unitree_g1_flat_partial_phase1_no_curriculum_env_cfg(play=play)
+  for group_name in ("actor", "critic"):
+    group = cfg.observations[group_name]
+    group.history_length = 1
+    group.flatten_history_dim = True
+  return cfg
+
+
 def unitree_g1_flat_partial_mha_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   """Create the flat partial-obs effort task with five-frame MHA history."""
   return enable_mha_history(unitree_g1_flat_partial_env_cfg(play=play))
