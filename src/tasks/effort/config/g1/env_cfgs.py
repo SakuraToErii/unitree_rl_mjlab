@@ -311,6 +311,16 @@ def unitree_g1_flat_imu_no_ankle_mha_no_curriculum_env_cfg(
   )
 
 
+def unitree_g1_flat_imu_no_ankle_speed_posture_no_curriculum_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """IMU ankle-blind no-curriculum task with speed-blended posture groups."""
+  return enable_speed_posture(
+    unitree_g1_flat_imu_no_ankle_no_curriculum_env_cfg(play=play),
+    G1_SPEED_POSTURE_GROUPS,
+  )
+
+
 def unitree_g1_flat_partial_mha_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   """Create the flat partial-obs effort task with five-frame MHA history."""
   return enable_mha_history(unitree_g1_flat_partial_env_cfg(play=play))

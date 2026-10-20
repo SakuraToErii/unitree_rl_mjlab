@@ -7,6 +7,7 @@ from .env_cfgs import (
   unitree_g1_flat_imu_no_ankle_h1_no_curriculum_env_cfg,
   unitree_g1_flat_imu_no_ankle_mha_no_curriculum_env_cfg,
   unitree_g1_flat_imu_no_ankle_no_curriculum_env_cfg,
+  unitree_g1_flat_imu_no_ankle_speed_posture_no_curriculum_env_cfg,
   unitree_g1_flat_mha_env_cfg,
   unitree_g1_flat_partial_env_cfg,
   unitree_g1_flat_partial_mha_env_cfg,
@@ -65,6 +66,16 @@ register_mjlab_task(
   task_id="Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-MLP-SpeedPose-CmdCurr-ObsNorm",
   env_cfg=unitree_g1_flat_partial_phase1_speed_posture_env_cfg(),
   play_env_cfg=unitree_g1_flat_partial_phase1_speed_posture_env_cfg(play=True),
+  rl_cfg=unitree_g1_ppo_runner_cfg(),
+  runner_cls=EffortOnPolicyRunner,
+)
+
+register_mjlab_task(
+  task_id="Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-MLP-SpeedPose-NoCurr-ObsNorm",
+  env_cfg=unitree_g1_flat_imu_no_ankle_speed_posture_no_curriculum_env_cfg(),
+  play_env_cfg=unitree_g1_flat_imu_no_ankle_speed_posture_no_curriculum_env_cfg(
+    play=True
+  ),
   rl_cfg=unitree_g1_ppo_runner_cfg(),
   runner_cls=EffortOnPolicyRunner,
 )

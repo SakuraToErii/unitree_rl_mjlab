@@ -70,6 +70,7 @@ from src.tasks.effort.zero_pd import EFFORT_ACTION_SCALE_FRACTION
 G1_SPEED_POSTURE_TASK_IDS = (
   "Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-SpeedPose-CmdCurr-ObsNorm",
   "Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-MLP-SpeedPose-CmdCurr-ObsNorm",
+  "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-MLP-SpeedPose-NoCurr-ObsNorm",
 )
 
 G1_EFFORT_TASK_IDS = (
@@ -91,6 +92,7 @@ G1_EFFORT_TASK_IDS = (
 G1_SPEED_POSTURE_CONTROL_IDS = (
   "Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-CmdCurr-ObsNorm",
   "Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-MLP-CmdCurr-ObsNorm",
+  "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-MLP-NoCurr-ObsNorm",
 )
 
 _G1_ANKLE_JOINTS = (
