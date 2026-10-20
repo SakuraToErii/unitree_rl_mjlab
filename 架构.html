@@ -102,7 +102,7 @@ svg text{fill:var(--fg);font-family:var(--sans)}
 <body>
 <div class="page">
 <header>
-<p class="eyebrow">main · Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm</p>
+<p class="eyebrow">main · Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-NoPhase-H5-TimeMHA-L1Pose-CmdCurr</p>
 <h1>Time-MHA Actor <span style="color:var(--head)">· 4+1</span></h1>
 <p class="lede">注意力沿时间轴走。每一帧观测是一个 token。过去 4 帧做一层自注意力，只留下最后一帧的输出；当前帧不进注意力，单独投影后与历史嵌入拼接，再送进 MLP，得到 29 维力矩动作均值。本页数字对应 Phase-1：actor 每帧 57 维，踝关节位置不在观测里。参数量 726,074，已用 <code>parameters()</code> 核对。</p>
 <dl class="spec">
@@ -397,7 +397,7 @@ svg text{fill:var(--fg);font-family:var(--sans)}
 <dt>rl/ppo_cfg.py</dt><dd><code>history_length=5</code>，<code>num_heads=4</code>，<code>encoder_hidden_dim=256</code>，位置编码可学习。</dd>
 <dt>config/g1/rl_cfg.py</dt><dd>MHA runner 的 MLP 隐藏层是 (512, 256, 128)，输出增益 0.01，熵系数 0.001。</dd>
 <dt>config/g1/__init__.py</dt><dd>四个 <code>*-MHA</code> 任务使用 <code>unitree_g1_ppo_mha_runner_cfg</code>。不带 MHA 的任务使用 <code>ResidualMlpModel</code>。</dd>
-<dt>train_effortmha.sh</dt><dd>当前启动的是 <code>Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-MLP-CmdCurr-ObsNorm</code>，actor 是展平历史的 MLP，参数 314,426。本页画的是同观测的 TimeMHA 任务。</dd>
+<dt>train_effortmha.sh</dt><dd>当前启动的是 <code>Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-NoPhase-H5-MLP-L1Pose-CmdCurr</code>，actor 是展平历史的 MLP，参数 314,426。本页画的是同观测的 TimeMHA 任务。</dd>
 </dl>
 </section>
 <p class="ft">main · b8ef8e5 · 2026-10-10。张量形状来自 HistoryMhaEncoder 与 ResidualMhaModel 的前向；726,074 与 314,426 来自对应配置下的 parameters() 计数。Critic 不在本页。</p>
