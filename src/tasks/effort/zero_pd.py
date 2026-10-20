@@ -1,11 +1,9 @@
 """Convert position actuators to zero-gain motors for feed-forward torque."""
 
-from collections.abc import Sequence
 from dataclasses import replace
 
 from mjlab.actuator import BuiltinPositionActuatorCfg, IdealPdActuatorCfg
 from mjlab.entity import EntityArticulationInfoCfg, EntityCfg
-from mjlab.envs.mdp.actions import JointEffortActionCfg
 
 # Policy action 1.0 maps to this fraction of each motor's peak torque.
 # Clip stays at the full peak, so |action| = 1 / fraction saturates the motor.
@@ -59,28 +57,3 @@ def with_zero_pd(cfg: EntityCfg) -> EntityCfg:
     ),
   )
 
-
-def absolute_effort_action_cfg(
-  actuators: Sequence[BuiltinPositionActuatorCfg],
-) -> JointEffortActionCfg:
-  """Build ``tau = clip(action * fraction * effort_limit, ±effort_limit)``.
-
-  ``fraction`` is ``EFFORT_ACTION_SCALE_FRACTION``. Clip stays at the peak, so
-  ``|action| = 1 / fraction`` saturates the motor.
-  """
-  scale: dict[str, float] = {}
-  clip: dict[str, tuple[float, float]] = {}
-  for actuator in actuators:
-    limit = actuator.effort_limit
-    assert limit is not None
-    for expr in actuator.target_names_expr:
-      peak = float(limit)
-      scale[expr] = EFFORT_ACTION_SCALE_FRACTION * peak
-      clip[expr] = (-peak, peak)
-  return JointEffortActionCfg(
-    entity_name="robot",
-    actuator_names=(".*",),
-    scale=scale,
-    offset=0.0,
-    clip=clip,
-  )

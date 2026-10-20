@@ -1,4 +1,10 @@
-"""Unitree G1 absolute-effort velocity environment configurations."""
+"""Unitree G1 absolute-effort velocity environment configurations.
+
+Variant names list how the actor differs from ``unitree_g1_flat_env_cfg``
+(``noimu``, ``noankle``, ``nojvel``, ``nophase``), then the history or encoder
+(``h1``, ``mha``), reward (``speed_pose``), and curriculum (``nocurr``), in
+the same order as the task id.
+"""
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
@@ -244,37 +250,27 @@ def unitree_g1_flat_mha_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   return enable_mha_history(unitree_g1_flat_env_cfg(play=play))
 
 
-def unitree_g1_flat_partial_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
-  """Create the flat-terrain effort task with a position-centric actor."""
+def unitree_g1_flat_noimu_nojvel_nophase_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Actor keeps joint positions, command, and last action only."""
   return enable_partial_actor_obs(unitree_g1_flat_env_cfg(play=play))
 
 
-def unitree_g1_flat_partial_phase1_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
-  """Partial actor obs with both ankle encoders removed from joint_pos."""
-  cfg = unitree_g1_flat_partial_env_cfg(play=play)
+def unitree_g1_flat_noimu_noankle_nojvel_nophase_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """IMU-free actor that also hides the four ankle encoders."""
+  cfg = unitree_g1_flat_noimu_nojvel_nophase_env_cfg(play=play)
   cfg.observations["actor"].terms["joint_pos"].params["asset_cfg"] = SceneEntityCfg(
     "robot", joint_names=_G1_NO_ANKLE_JOINT_NAMES
   )
   return cfg
 
 
-def unitree_g1_flat_speed_posture_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
-  """Flat full-obs task with speed-blended posture groups in place of L1."""
-  return enable_speed_posture(
-    unitree_g1_flat_env_cfg(play=play), G1_SPEED_POSTURE_GROUPS
-  )
-
-
-def unitree_g1_flat_partial_phase1_speed_posture_env_cfg(
+def unitree_g1_flat_noankle_nojvel_nophase_env_cfg(
   play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
-  """Flat partial phase-1 task with speed-blended posture groups."""
-  return enable_speed_posture(
-    unitree_g1_flat_partial_phase1_env_cfg(play=play), G1_SPEED_POSTURE_GROUPS
-  )
-
-
-def unitree_g1_flat_imu_no_ankle_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   """Ankle-blind actor that keeps IMU and drops joint velocity and gait phase."""
   cfg = unitree_g1_flat_env_cfg(play=play)
   actor_obs = cfg.observations["actor"]
@@ -286,48 +282,71 @@ def unitree_g1_flat_imu_no_ankle_env_cfg(play: bool = False) -> ManagerBasedRlEn
   return cfg
 
 
-def unitree_g1_flat_imu_no_ankle_no_curriculum_env_cfg(
+def unitree_g1_flat_noimu_nojvel_nophase_mha_env_cfg(
   play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
-  """IMU ankle-blind MLP task with velocity commands at full range from step 0."""
-  return disable_command_curriculum(unitree_g1_flat_imu_no_ankle_env_cfg(play=play))
+  """TimeMHA variant of the IMU-free joint-position actor."""
+  return enable_mha_history(unitree_g1_flat_noimu_nojvel_nophase_env_cfg(play=play))
 
 
-def unitree_g1_flat_imu_no_ankle_h1_no_curriculum_env_cfg(
+def unitree_g1_flat_noimu_noankle_nojvel_nophase_mha_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """TimeMHA variant of the IMU-free ankle-blind actor."""
+  return enable_mha_history(
+    unitree_g1_flat_noimu_noankle_nojvel_nophase_env_cfg(play=play)
+  )
+
+
+def unitree_g1_flat_noankle_nojvel_nophase_nocurr_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """IMU ankle-blind actor with velocity commands at full range from step 0."""
+  return disable_command_curriculum(
+    unitree_g1_flat_noankle_nojvel_nophase_env_cfg(play=play)
+  )
+
+
+def unitree_g1_flat_noankle_nojvel_nophase_h1_nocurr_env_cfg(
   play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
   """Current-frame variant of the IMU ankle-blind no-curriculum task."""
   return enable_current_frame_obs(
-    unitree_g1_flat_imu_no_ankle_no_curriculum_env_cfg(play=play)
+    unitree_g1_flat_noankle_nojvel_nophase_nocurr_env_cfg(play=play)
   )
 
 
-def unitree_g1_flat_imu_no_ankle_mha_no_curriculum_env_cfg(
+def unitree_g1_flat_noankle_nojvel_nophase_mha_nocurr_env_cfg(
   play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
   """TimeMHA variant of the IMU ankle-blind no-curriculum task."""
   return enable_mha_history(
-    unitree_g1_flat_imu_no_ankle_no_curriculum_env_cfg(play=play)
+    unitree_g1_flat_noankle_nojvel_nophase_nocurr_env_cfg(play=play)
   )
 
 
-def unitree_g1_flat_imu_no_ankle_speed_posture_no_curriculum_env_cfg(
+def unitree_g1_flat_speed_pose_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Full flat actor with speed-blended posture groups in place of L1."""
+  return enable_speed_posture(
+    unitree_g1_flat_env_cfg(play=play), G1_SPEED_POSTURE_GROUPS
+  )
+
+
+def unitree_g1_flat_noimu_noankle_nojvel_nophase_speed_pose_env_cfg(
   play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
-  """IMU ankle-blind no-curriculum task with speed-blended posture groups."""
+  """IMU-free ankle-blind actor with speed-blended posture groups."""
   return enable_speed_posture(
-    unitree_g1_flat_imu_no_ankle_no_curriculum_env_cfg(play=play),
+    unitree_g1_flat_noimu_noankle_nojvel_nophase_env_cfg(play=play),
     G1_SPEED_POSTURE_GROUPS,
   )
 
 
-def unitree_g1_flat_partial_mha_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
-  """Create the flat partial-obs effort task with five-frame MHA history."""
-  return enable_mha_history(unitree_g1_flat_partial_env_cfg(play=play))
-
-
-def unitree_g1_flat_partial_phase1_mha_env_cfg(
+def unitree_g1_flat_noankle_nojvel_nophase_speed_pose_nocurr_env_cfg(
   play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
-  """Create the flat partial phase-1 effort task with five-frame MHA history."""
-  return enable_mha_history(unitree_g1_flat_partial_phase1_env_cfg(play=play))
+  """IMU ankle-blind no-curriculum task with speed-blended posture groups."""
+  return enable_speed_posture(
+    unitree_g1_flat_noankle_nojvel_nophase_nocurr_env_cfg(play=play),
+    G1_SPEED_POSTURE_GROUPS,
+  )

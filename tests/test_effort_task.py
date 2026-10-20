@@ -39,24 +39,16 @@ from src.tasks.effort.config.g1.env_cfgs import (
   G1_SPEED_POSTURE_GROUPS,
   unitree_g1_flat_env_cfg,
   unitree_g1_flat_mha_env_cfg,
-  unitree_g1_flat_partial_env_cfg,
-  unitree_g1_flat_partial_mha_env_cfg,
-  unitree_g1_flat_partial_phase1_env_cfg,
-  unitree_g1_flat_partial_phase1_mha_env_cfg,
+  unitree_g1_flat_noimu_nojvel_nophase_env_cfg,
+  unitree_g1_flat_noimu_nojvel_nophase_mha_env_cfg,
+  unitree_g1_flat_noimu_noankle_nojvel_nophase_env_cfg,
+  unitree_g1_flat_noimu_noankle_nojvel_nophase_mha_env_cfg,
   unitree_g1_rough_env_cfg,
   unitree_g1_rough_mha_env_cfg,
 )
 from src.tasks.effort.config.g1.rl_cfg import (
   unitree_g1_ppo_mha_runner_cfg,
   unitree_g1_ppo_runner_cfg,
-)
-from src.tasks.effort.config.g1_23dof.rl_cfg import (
-  unitree_g1_23dof_ppo_mha_runner_cfg,
-  unitree_g1_23dof_ppo_runner_cfg,
-)
-from src.tasks.effort.config.go2.rl_cfg import (
-  unitree_go2_ppo_mha_runner_cfg,
-  unitree_go2_ppo_runner_cfg,
 )
 from src.tasks.effort.config.g1.robot_cfg import (
   EFFORT_STANDING_JOINT_POSITION,
@@ -68,31 +60,41 @@ from src.tasks.effort.rl.runner import get_effort_metadata
 from src.tasks.effort.zero_pd import EFFORT_ACTION_SCALE_FRACTION
 
 G1_SPEED_POSTURE_TASK_IDS = (
-  "Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-SpeedPose-CmdCurr-ObsNorm",
-  "Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-MLP-SpeedPose-CmdCurr-ObsNorm",
-  "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-MLP-SpeedPose-NoCurr-ObsNorm",
+  "Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-SpeedPose-CmdCurr",
+  "Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-NoPhase-H5-MLP-SpeedPose-CmdCurr",
+  "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-NoPhase-H5-MLP-SpeedPose-NoCurr",
 )
 
 G1_EFFORT_TASK_IDS = (
-  "Unitree-G1-Effort-0PD-Rough-IMU-JPos-JVel-Phase-HeightScan-H5-MLP-CmdCurr-TerrainCurr-ObsNorm",
-  "Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-CmdCurr-ObsNorm",
-  "Unitree-G1-Effort-0PD-Flat-NoIMU-JPos-NoJVel-H5-MLP-CmdCurr-ObsNorm",
-  "Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-MLP-CmdCurr-ObsNorm",
-  "Unitree-G1-Effort-0PD-Flat-NoIMU-JPos-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm",
-  "Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm",
-  "Unitree-G1-Effort-0PD-Rough-IMU-JPos-JVel-Phase-HeightScan-H5-TimeMHA-CmdCurr-TerrainCurr-ObsNorm",
-  "Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-TimeMHA-CmdCurr-ObsNorm",
-  "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-MLP-NoCurr-ObsNorm",
-  "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H1-MLP-NoCurr-ObsNorm",
-  "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-TimeMHA-NoCurr-ObsNorm",
+  "Unitree-G1-Effort-0PD-Rough-IMU-JPos-JVel-Phase-HeightScan-H5-MLP-L1Pose-CmdCurr-TerrainCurr",
+  "Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-L1Pose-CmdCurr",
+  "Unitree-G1-Effort-0PD-Flat-NoIMU-JPos-NoJVel-NoPhase-H5-MLP-L1Pose-CmdCurr",
+  "Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-NoPhase-H5-MLP-L1Pose-CmdCurr",
+  "Unitree-G1-Effort-0PD-Flat-NoIMU-JPos-NoJVel-NoPhase-H5-TimeMHA-L1Pose-CmdCurr",
+  "Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-NoPhase-H5-TimeMHA-L1Pose-CmdCurr",
+  "Unitree-G1-Effort-0PD-Rough-IMU-JPos-JVel-Phase-HeightScan-H5-TimeMHA-L1Pose-CmdCurr-TerrainCurr",
+  "Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-TimeMHA-L1Pose-CmdCurr",
+  "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-NoPhase-H5-MLP-L1Pose-NoCurr",
+  "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-NoPhase-H1-MLP-L1Pose-NoCurr",
+  "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-NoPhase-H5-TimeMHA-L1Pose-NoCurr",
   *G1_SPEED_POSTURE_TASK_IDS,
 )
 
 # L1 control for each speed-posture task, in the same order.
 G1_SPEED_POSTURE_CONTROL_IDS = (
-  "Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-CmdCurr-ObsNorm",
-  "Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-MLP-CmdCurr-ObsNorm",
-  "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-MLP-NoCurr-ObsNorm",
+  "Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-L1Pose-CmdCurr",
+  "Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-NoPhase-H5-MLP-L1Pose-CmdCurr",
+  "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-NoPhase-H5-MLP-L1Pose-NoCurr",
+)
+
+# Every effort task id must spell out its actor observations, history, encoder,
+# reward, and curriculum in this order; see doc/effort_task_names.md.
+_EFFORT_TASK_ID = re.compile(
+  r"Unitree-G1-Effort-0PD-(?P<terrain>Flat|Rough)"
+  r"-(?P<imu>IMU|NoIMU)-(?P<jpos>JPos|JPosNoAnkle)-(?P<jvel>JVel|NoJVel)"
+  r"-(?P<phase>Phase|NoPhase)(?P<scan>-HeightScan)?"
+  r"-(?P<history>H1|H5)-(?P<encoder>MLP|TimeMHA|GroupTimeFusion)"
+  r"-(?P<reward>L1Pose|SpeedPose)-(?P<cmd>CmdCurr|NoCurr)(?P<terrain_curr>-TerrainCurr)?"
 )
 
 _G1_ANKLE_JOINTS = (
@@ -102,17 +104,6 @@ _G1_ANKLE_JOINTS = (
   "right_ankle_roll_joint",
 )
 
-ALL_EFFORT_TASK_IDS = (
-  *G1_EFFORT_TASK_IDS,
-  "Unitree-G1-23Dof-Effort-0PD-Rough-IMU-JPos-JVel-Phase-HeightScan-H5-MLP-CmdCurr-TerrainCurr-ObsNorm",
-  "Unitree-G1-23Dof-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-CmdCurr-ObsNorm",
-  "Unitree-G1-23Dof-Effort-0PD-Rough-IMU-JPos-JVel-Phase-HeightScan-H5-TimeMHA-CmdCurr-TerrainCurr-ObsNorm",
-  "Unitree-G1-23Dof-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-TimeMHA-CmdCurr-ObsNorm",
-  "Unitree-Go2-Effort-0PD-Rough-IMU-JPos-JVel-Phase-HeightScan-H5-MLP-CmdCurr-TerrainCurr-ObsNorm",
-  "Unitree-Go2-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-CmdCurr-ObsNorm",
-  "Unitree-Go2-Effort-0PD-Rough-IMU-JPos-JVel-Phase-HeightScan-H5-TimeMHA-CmdCurr-TerrainCurr-ObsNorm",
-  "Unitree-Go2-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-TimeMHA-CmdCurr-ObsNorm",
-)
 
 VELOCITY_TASK_IDS = (
   "Unitree-G1-Rough",
@@ -144,13 +135,78 @@ class _FakeActionManager:
 class EffortTaskTest(unittest.TestCase):
   def test_effort_tasks_are_registered_without_colliding_with_velocity(self) -> None:
     task_ids = list_tasks()
-    for task_id in ALL_EFFORT_TASK_IDS:
+    for task_id in G1_EFFORT_TASK_IDS:
       self.assertIn(task_id, task_ids)
     for task_id in VELOCITY_TASK_IDS:
       self.assertIn(task_id, task_ids)
       cfg = load_env_cfg(task_id)
       self.assertIn("joint_pos", cfg.actions)
       self.assertIsInstance(cfg.actions["joint_pos"], JointPositionActionCfg)
+
+  def test_effort_task_ids_describe_their_configs(self) -> None:
+    effort_task_ids = {task_id for task_id in list_tasks() if "-Effort-" in task_id}
+    self.assertEqual(effort_task_ids, set(G1_EFFORT_TASK_IDS))
+    robot = Entity(get_g1_effort_robot_cfg())
+    encoder_models = {
+      "MLP": ":ResidualMlpModel",
+      "TimeMHA": ":ResidualMhaModel",
+      "GroupTimeFusion": ":ResidualGroupTimeModel",
+    }
+
+    for task_id in sorted(effort_task_ids):
+      with self.subTest(task_id=task_id):
+        match = _EFFORT_TASK_ID.fullmatch(task_id)
+        assert match is not None, task_id
+        cfg = load_env_cfg(task_id)
+        rl_cfg = load_rl_cfg(task_id)
+        actor_obs = cfg.observations["actor"]
+        terms = set(actor_obs.terms)
+
+        assert cfg.scene.terrain is not None
+        self.assertEqual(
+          cfg.scene.terrain.terrain_type == "plane", match["terrain"] == "Flat"
+        )
+        self.assertEqual(
+          {"base_ang_vel", "projected_gravity"} <= terms, match["imu"] == "IMU"
+        )
+        self.assertFalse(
+          match["imu"] == "NoIMU"
+          and bool({"base_ang_vel", "projected_gravity"} & terms)
+        )
+        joint_pos_cfg = actor_obs.terms["joint_pos"].params.get("asset_cfg")
+        observed = (
+          robot.joint_names
+          if joint_pos_cfg is None
+          else robot.find_joints(joint_pos_cfg.joint_names)[1]
+        )
+        hides_ankles = not set(_G1_ANKLE_JOINTS) & set(observed)
+        self.assertEqual(hides_ankles, match["jpos"] == "JPosNoAnkle")
+        self.assertEqual("joint_vel" in terms, match["jvel"] == "JVel")
+        self.assertEqual("phase" in terms, match["phase"] == "Phase")
+        self.assertEqual("height_scan" in terms, match["scan"] is not None)
+        self.assertEqual(actor_obs.history_length, int(match["history"][1:]))
+        self.assertTrue(
+          rl_cfg.actor.class_name.endswith(encoder_models[match["encoder"]])
+        )
+
+        posture_terms = {name for name in cfg.rewards if name.startswith("posture_")}
+        if match["reward"] == "SpeedPose":
+          self.assertTrue(posture_terms)
+          self.assertNotIn("stand_still", cfg.rewards)
+        else:
+          self.assertFalse(posture_terms)
+          self.assertIn("stand_still", cfg.rewards)
+
+        self.assertEqual("command_vel" in cfg.curriculum, match["cmd"] == "CmdCurr")
+        self.assertEqual(
+          "terrain_levels" in cfg.curriculum, match["terrain_curr"] is not None
+        )
+        self.assertTrue(rl_cfg.actor.obs_normalization)
+        self.assertTrue(rl_cfg.critic.obs_normalization)
+        self.assertEqual(
+          rl_cfg.experiment_name,
+          task_id.removeprefix("Unitree-").replace("-", "_").lower(),
+        )
 
   def test_g1_effort_robot_has_zero_gain_actuators(self) -> None:
     cfg = get_g1_effort_robot_cfg()
@@ -268,7 +324,7 @@ class EffortTaskTest(unittest.TestCase):
     torch.testing.assert_close(action._processed_actions[0], expected_y1)
 
   def test_effort_export_metadata_uses_torque_action_contract(self) -> None:
-    env = ManagerBasedRlEnv(load_env_cfg("Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-CmdCurr-ObsNorm"), device="cpu")
+    env = ManagerBasedRlEnv(load_env_cfg("Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-L1Pose-CmdCurr"), device="cpu")
     try:
       with self.assertRaises(KeyError):
         get_base_metadata(env, "test-effort")
@@ -327,7 +383,7 @@ class EffortTaskTest(unittest.TestCase):
       env.close()
 
   def test_g1_effort_rewards_use_walkable_pose_split(self) -> None:
-    cfg = load_env_cfg("Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-CmdCurr-ObsNorm")
+    cfg = load_env_cfg("Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-L1Pose-CmdCurr")
 
     self.assertNotIn("pose", cfg.rewards)
     self.assertIs(cfg.rewards["stand_still"].func, mdp.stand_still)
@@ -383,50 +439,6 @@ class EffortTaskTest(unittest.TestCase):
       "feet_ground_contact",
     )
     self.assertEqual(cfg.rewards["feet_air_time"].params["command_name"], "twist")
-
-  def test_other_effort_variants_configure_new_rewards(self) -> None:
-    g1_23dof_cfg = load_env_cfg("Unitree-G1-23Dof-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-CmdCurr-ObsNorm")
-    go2_cfg = load_env_cfg("Unitree-Go2-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-MLP-CmdCurr-ObsNorm")
-
-    for cfg in (g1_23dof_cfg, go2_cfg):
-      self.assertNotIn("pose", cfg.rewards)
-      self.assertIs(cfg.rewards["stand_still"].func, mdp.stand_still)
-      self.assertIn("joint_deviation_arms", cfg.rewards)
-      self.assertIn("joint_deviation_waists", cfg.rewards)
-      self.assertIn("joint_deviation_legs", cfg.rewards)
-      self.assertEqual(cfg.rewards["stand_still"].weight, -1.0)
-      self.assertEqual(cfg.rewards["body_orientation_l2"].weight, -4.0)
-      self.assertEqual(cfg.rewards["body_ang_vel"].weight, -0.15)
-      self.assertEqual(cfg.rewards["base_height"].weight, -10.0)
-      self.assertEqual(cfg.rewards["base_height"].params["deadzone"], 0.02)
-      self.assertNotIn("action_rate_l2", cfg.rewards)
-      self.assertIn("effort_action_rate_l2", cfg.rewards)
-
-    self.assertEqual(g1_23dof_cfg.rewards["joint_deviation_arms"].weight, -0.3)
-    self.assertEqual(
-      g1_23dof_cfg.rewards["joint_deviation_legs"].params["asset_cfg"].joint_names,
-      (".*_hip_roll_joint", ".*_hip_yaw_joint"),
-    )
-    self.assertEqual(
-      g1_23dof_cfg.rewards["base_height"].params["target_height"],
-      0.79,
-    )
-
-    self.assertEqual(go2_cfg.rewards["joint_deviation_arms"].weight, 0.0)
-    self.assertEqual(go2_cfg.rewards["joint_deviation_waists"].weight, 0.0)
-    self.assertEqual(
-      go2_cfg.rewards["joint_deviation_legs"].params["asset_cfg"].joint_names,
-      (".*_hip_joint",),
-    )
-    self.assertEqual(
-      go2_cfg.rewards["base_height"].params["target_height"],
-      0.32,
-    )
-    self.assertEqual(
-      go2_cfg.rewards["foot_gait"].params["offset"],
-      [0.0, 0.5, 0.5, 0.0],
-    )
-    self.assertIn("illegal_contact", go2_cfg.terminations)
 
   def test_effort_action_rate_uses_processed_torque_fraction(self) -> None:
     robot = Entity(get_g1_effort_robot_cfg())
@@ -649,10 +661,10 @@ class EffortTaskTest(unittest.TestCase):
     pairs = (
       (unitree_g1_rough_env_cfg(), unitree_g1_rough_mha_env_cfg()),
       (unitree_g1_flat_env_cfg(), unitree_g1_flat_mha_env_cfg()),
-      (unitree_g1_flat_partial_env_cfg(), unitree_g1_flat_partial_mha_env_cfg()),
+      (unitree_g1_flat_noimu_nojvel_nophase_env_cfg(), unitree_g1_flat_noimu_nojvel_nophase_mha_env_cfg()),
       (
-        unitree_g1_flat_partial_phase1_env_cfg(),
-        unitree_g1_flat_partial_phase1_mha_env_cfg(),
+        unitree_g1_flat_noimu_noankle_nojvel_nophase_env_cfg(),
+        unitree_g1_flat_noimu_noankle_nojvel_nophase_mha_env_cfg(),
       ),
     )
     for base_cfg, mha_cfg in pairs:
@@ -673,9 +685,9 @@ class EffortTaskTest(unittest.TestCase):
       self.assertEqual(mha_cfg.observations["critic"].history_length, 5)
       self.assertTrue(mha_cfg.observations["critic"].flatten_history_dim)
 
-  def test_flat_partial_strips_actor_and_keeps_privileged_critic(self) -> None:
-    cfg = load_env_cfg("Unitree-G1-Effort-0PD-Flat-NoIMU-JPos-NoJVel-H5-MLP-CmdCurr-ObsNorm")
-    play_cfg = unitree_g1_flat_partial_env_cfg(play=True)
+  def test_noimu_actor_keeps_joint_command_action_and_privileged_critic(self) -> None:
+    cfg = load_env_cfg("Unitree-G1-Effort-0PD-Flat-NoIMU-JPos-NoJVel-NoPhase-H5-MLP-L1Pose-CmdCurr")
+    play_cfg = unitree_g1_flat_noimu_nojvel_nophase_env_cfg(play=True)
 
     self.assertEqual(
       set(cfg.observations["actor"].terms),
@@ -702,22 +714,22 @@ class EffortTaskTest(unittest.TestCase):
     self.assertEqual(cfg.observations["actor"].history_length, 5)
     self.assertTrue(cfg.observations["actor"].flatten_history_dim)
 
-    mha_cfg = load_env_cfg("Unitree-G1-Effort-0PD-Flat-NoIMU-JPos-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm")
+    mha_cfg = load_env_cfg("Unitree-G1-Effort-0PD-Flat-NoIMU-JPos-NoJVel-NoPhase-H5-TimeMHA-L1Pose-CmdCurr")
     self.assertEqual(
       set(mha_cfg.observations["actor"].terms),
       {"joint_pos", "command", "actions"},
     )
     self.assertFalse(mha_cfg.observations["actor"].flatten_history_dim)
     self.assertTrue(
-      load_rl_cfg("Unitree-G1-Effort-0PD-Flat-NoIMU-JPos-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm").actor.class_name.endswith(
+      load_rl_cfg("Unitree-G1-Effort-0PD-Flat-NoIMU-JPos-NoJVel-NoPhase-H5-TimeMHA-L1Pose-CmdCurr").actor.class_name.endswith(
         ":ResidualMhaModel"
       )
     )
 
-  def test_flat_partial_phase1_drops_actor_ankle_encoders_only(self) -> None:
-    cfg = load_env_cfg("Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-MLP-CmdCurr-ObsNorm")
-    play_cfg = unitree_g1_flat_partial_phase1_env_cfg(play=True)
-    mha_cfg = load_env_cfg("Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm")
+  def test_noimu_noankle_actor_drops_ankle_encoders_only(self) -> None:
+    cfg = load_env_cfg("Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-NoPhase-H5-MLP-L1Pose-CmdCurr")
+    play_cfg = unitree_g1_flat_noimu_noankle_nojvel_nophase_env_cfg(play=True)
+    mha_cfg = load_env_cfg("Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-NoPhase-H5-TimeMHA-L1Pose-CmdCurr")
 
     self.assertEqual(
       set(cfg.observations["actor"].terms),
@@ -750,22 +762,22 @@ class EffortTaskTest(unittest.TestCase):
     )
     self.assertFalse(mha_cfg.observations["actor"].flatten_history_dim)
     self.assertTrue(
-      load_rl_cfg("Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-MLP-CmdCurr-ObsNorm").actor.class_name.endswith(
+      load_rl_cfg("Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-NoPhase-H5-MLP-L1Pose-CmdCurr").actor.class_name.endswith(
         ":ResidualMlpModel"
       )
     )
     self.assertTrue(
-      load_rl_cfg("Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm").actor.class_name.endswith(
+      load_rl_cfg("Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-NoPhase-H5-TimeMHA-L1Pose-CmdCurr").actor.class_name.endswith(
         ":ResidualMhaModel"
       )
     )
 
-  def test_imu_no_ankle_no_curriculum_tasks(self) -> None:
-    prefix = "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel"
+  def test_imu_noankle_nocurr_tasks(self) -> None:
+    prefix = "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-NoPhase"
     task_ids = {
-      "h5_mlp": f"{prefix}-H5-MLP-NoCurr-ObsNorm",
-      "h1_mlp": f"{prefix}-H1-MLP-NoCurr-ObsNorm",
-      "h5_mha": f"{prefix}-H5-TimeMHA-NoCurr-ObsNorm",
+      "h5_mlp": f"{prefix}-H5-MLP-L1Pose-NoCurr",
+      "h1_mlp": f"{prefix}-H1-MLP-L1Pose-NoCurr",
+      "h5_mha": f"{prefix}-H5-TimeMHA-L1Pose-NoCurr",
     }
     robot = Entity(get_g1_effort_robot_cfg())
 
@@ -810,7 +822,7 @@ class EffortTaskTest(unittest.TestCase):
       self.assertTrue(load_rl_cfg(task_ids[key]).actor.class_name.endswith(model))
 
   def test_all_effort_variants_use_joint_effort_actions(self) -> None:
-    for task_id in ALL_EFFORT_TASK_IDS:
+    for task_id in G1_EFFORT_TASK_IDS:
       cfg = load_env_cfg(task_id)
       self.assertEqual(list(cfg.actions), ["joint_effort"])
       action_cfg = cfg.actions["joint_effort"]
@@ -852,24 +864,11 @@ class EffortTaskTest(unittest.TestCase):
     self.assertEqual(ppo_cfg.max_iterations, 50_000)
     self.assertEqual(mha_cfg.max_iterations, 10_000)
 
-    other_runners = (
-      unitree_g1_23dof_ppo_runner_cfg(),
-      unitree_g1_23dof_ppo_mha_runner_cfg(),
-      unitree_go2_ppo_runner_cfg(),
-      unitree_go2_ppo_mha_runner_cfg(),
-    )
-    for other_cfg in other_runners:
-      self.assertEqual(other_cfg.actor.distribution_cfg, expected_distribution)
-      self.assertTrue(other_cfg.actor.obs_normalization)
-      self.assertTrue(other_cfg.critic.obs_normalization)
-      self.assertIsNone(other_cfg.clip_actions)
-      self.assertEqual(other_cfg.algorithm.entropy_coef, 0.001)
-
     serialized_mha_cfg = asdict(mha_cfg)
     self.assertEqual(serialized_mha_cfg["actor"]["history_length"], 5)
     self.assertEqual(serialized_mha_cfg["actor"]["num_heads"], 4)
 
-    for task_id in ALL_EFFORT_TASK_IDS:
+    for task_id in G1_EFFORT_TASK_IDS:
       registered_cfg = load_rl_cfg(task_id)
       self.assertTrue(
         registered_cfg.actor.obs_normalization,
