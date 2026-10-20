@@ -81,6 +81,9 @@ G1_EFFORT_TASK_IDS = (
   "Unitree-G1-Effort-0PD-Flat-NoIMU-JPosNoAnkle-NoJVel-H5-TimeMHA-CmdCurr-ObsNorm",
   "Unitree-G1-Effort-0PD-Rough-IMU-JPos-JVel-Phase-HeightScan-H5-TimeMHA-CmdCurr-TerrainCurr-ObsNorm",
   "Unitree-G1-Effort-0PD-Flat-IMU-JPos-JVel-Phase-H5-TimeMHA-CmdCurr-ObsNorm",
+  "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-MLP-NoCurr-ObsNorm",
+  "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H1-MLP-NoCurr-ObsNorm",
+  "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel-H5-TimeMHA-NoCurr-ObsNorm",
   *G1_SPEED_POSTURE_TASK_IDS,
 )
 
@@ -754,6 +757,55 @@ class EffortTaskTest(unittest.TestCase):
         ":ResidualMhaModel"
       )
     )
+
+  def test_imu_no_ankle_no_curriculum_tasks(self) -> None:
+    prefix = "Unitree-G1-Effort-0PD-Flat-IMU-JPosNoAnkle-NoJVel"
+    task_ids = {
+      "h5_mlp": f"{prefix}-H5-MLP-NoCurr-ObsNorm",
+      "h1_mlp": f"{prefix}-H1-MLP-NoCurr-ObsNorm",
+      "h5_mha": f"{prefix}-H5-TimeMHA-NoCurr-ObsNorm",
+    }
+    robot = Entity(get_g1_effort_robot_cfg())
+
+    for task_id in task_ids.values():
+      cfg = load_env_cfg(task_id)
+      actor_obs = cfg.observations["actor"]
+      self.assertEqual(
+        set(actor_obs.terms),
+        {"base_ang_vel", "projected_gravity", "command", "joint_pos", "actions"},
+      )
+      keep_names = actor_obs.terms["joint_pos"].params["asset_cfg"].joint_names
+      _, observed_joints = robot.find_joints(keep_names)
+      dropped = [name for name in robot.joint_names if name not in observed_joints]
+      self.assertEqual(dropped, list(_G1_ANKLE_JOINTS))
+      self.assertNotIn("asset_cfg", cfg.observations["critic"].terms["joint_pos"].params)
+
+      self.assertNotIn("command_vel", cfg.curriculum)
+      ranges = cfg.commands["twist"].ranges
+      self.assertEqual(ranges.lin_vel_x, (-2.0, 2.0))
+      self.assertEqual(ranges.lin_vel_y, (-1.0, 1.0))
+      self.assertEqual(ranges.ang_vel_z, (-1.0, 1.0))
+
+    h5_mlp = load_env_cfg(task_ids["h5_mlp"]).observations
+    self.assertEqual(h5_mlp["actor"].history_length, 5)
+    self.assertTrue(h5_mlp["actor"].flatten_history_dim)
+
+    h1_mlp = load_env_cfg(task_ids["h1_mlp"]).observations
+    for group_name in ("actor", "critic"):
+      self.assertEqual(h1_mlp[group_name].history_length, 1)
+      self.assertTrue(h1_mlp[group_name].flatten_history_dim)
+
+    h5_mha = load_env_cfg(task_ids["h5_mha"]).observations
+    self.assertEqual(h5_mha["actor"].history_length, 5)
+    self.assertFalse(h5_mha["actor"].flatten_history_dim)
+    self.assertTrue(h5_mha["critic"].flatten_history_dim)
+
+    for key, model in (
+      ("h5_mlp", ":ResidualMlpModel"),
+      ("h1_mlp", ":ResidualMlpModel"),
+      ("h5_mha", ":ResidualMhaModel"),
+    ):
+      self.assertTrue(load_rl_cfg(task_ids[key]).actor.class_name.endswith(model))
 
   def test_all_effort_variants_use_joint_effort_actions(self) -> None:
     for task_id in ALL_EFFORT_TASK_IDS:
