@@ -487,6 +487,21 @@ def enable_mha_history(cfg: ManagerBasedRlEnvCfg) -> ManagerBasedRlEnvCfg:
   return _set_history_length(cfg, 5)
 
 
+def enable_current_frame_obs(cfg: ManagerBasedRlEnvCfg) -> ManagerBasedRlEnvCfg:
+  """Give the actor and critic only the current observation frame."""
+  for group_name in ("actor", "critic"):
+    group = cfg.observations[group_name]
+    group.history_length = 1
+    group.flatten_history_dim = True
+  return cfg
+
+
+def disable_command_curriculum(cfg: ManagerBasedRlEnvCfg) -> ManagerBasedRlEnvCfg:
+  """Sample velocity commands from the configured full ranges from step 0."""
+  cfg.curriculum.pop("command_vel", None)
+  return cfg
+
+
 def enable_group_time_history(cfg: ManagerBasedRlEnvCfg) -> ManagerBasedRlEnvCfg:
   """Five-frame actor window for per-joint current-query attention."""
   return _set_history_length(cfg, 5)
