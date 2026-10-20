@@ -22,9 +22,21 @@ from src.tasks.effort.config.g1.robot_cfg import (
   get_g1_effort_robot_cfg,
 )
 from src.tasks.effort.velocity_env_cfg import (
+  disable_command_curriculum,
+  enable_current_frame_obs,
   enable_mha_history,
   enable_partial_actor_obs,
   make_effort_env_cfg,
+)
+
+# Every controlled joint except the four ankles, for ankle-blind actors.
+_G1_NO_ANKLE_JOINT_NAMES = (
+  ".*_hip_.*_joint",
+  ".*_knee_joint",
+  "waist_.*_joint",
+  ".*_shoulder_.*_joint",
+  ".*_elbow_joint",
+  ".*_wrist_.*_joint",
 )
 
 
@@ -202,17 +214,46 @@ def unitree_g1_flat_partial_phase1_env_cfg(play: bool = False) -> ManagerBasedRl
   """Partial actor obs with both ankle encoders removed from joint_pos."""
   cfg = unitree_g1_flat_partial_env_cfg(play=play)
   cfg.observations["actor"].terms["joint_pos"].params["asset_cfg"] = SceneEntityCfg(
-    "robot",
-    joint_names=(
-      ".*_hip_.*_joint",
-      ".*_knee_joint",
-      "waist_.*_joint",
-      ".*_shoulder_.*_joint",
-      ".*_elbow_joint",
-      ".*_wrist_.*_joint",
-    ),
+    "robot", joint_names=_G1_NO_ANKLE_JOINT_NAMES
   )
   return cfg
+
+
+def unitree_g1_flat_imu_no_ankle_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """Ankle-blind actor that keeps IMU and drops joint velocity and gait phase."""
+  cfg = unitree_g1_flat_env_cfg(play=play)
+  actor_obs = cfg.observations["actor"]
+  for term_name in ("joint_vel", "phase"):
+    actor_obs.terms.pop(term_name, None)
+  actor_obs.terms["joint_pos"].params["asset_cfg"] = SceneEntityCfg(
+    "robot", joint_names=_G1_NO_ANKLE_JOINT_NAMES
+  )
+  return cfg
+
+
+def unitree_g1_flat_imu_no_ankle_no_curriculum_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """IMU ankle-blind MLP task with velocity commands at full range from step 0."""
+  return disable_command_curriculum(unitree_g1_flat_imu_no_ankle_env_cfg(play=play))
+
+
+def unitree_g1_flat_imu_no_ankle_h1_no_curriculum_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """Current-frame variant of the IMU ankle-blind no-curriculum task."""
+  return enable_current_frame_obs(
+    unitree_g1_flat_imu_no_ankle_no_curriculum_env_cfg(play=play)
+  )
+
+
+def unitree_g1_flat_imu_no_ankle_mha_no_curriculum_env_cfg(
+  play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+  """TimeMHA variant of the IMU ankle-blind no-curriculum task."""
+  return enable_mha_history(
+    unitree_g1_flat_imu_no_ankle_no_curriculum_env_cfg(play=play)
+  )
 
 
 def unitree_g1_flat_partial_mha_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
