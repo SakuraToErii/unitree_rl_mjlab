@@ -3,6 +3,7 @@
 outputs
 logs
 wandb
+exp-runs
 MUJOCO_LOG.TXT
 deploy/robots/go2/build
 deploy/robots/g1/build

@@ -1,0 +1,25 @@
+# exp.toml — how `exp submit` runs this project on the cluster. [expctl ADR-0018]
+[project]
+name = "unitree-rl-mjlab"
+template = "uv"          # uv: base image + uv sync | image: bring your own image (needs bash)
+# image = ""             # for template = "image"
+# priority = "train"     # debug (max 2h) | train | sweep (preemptible)
+
+[run]
+# {seed} and --grid keys are substituted; extra args after `exp submit --` are appended.
+train = "python scripts/train.py Unitree-G1-Flat --agent.seed {seed}"
+# resume = "python train.py --resume {checkpoint}"   # used when checkpoint_glob matches
+# checkpoint_glob = "runs/**/*.pt"                   # relative to the project root
+outputs = "logs"    # this dir is synced to the hub every 60 s; TensorBoard reads it
+
+[resources]
+cpu = 4
+memory = "16Gi"
+gpu = "slice"            # slice (1/8 of a 4090) | full | none (CPU only, may land on the Mac mini)
+# arch = "amd64"         # pin when a dependency has no arm64 wheels
+
+[snapshot]
+exclude = []             # on top of .gitignore and the cluster defaults
+
+[env]
+# KEY = "value"
