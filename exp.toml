@@ -19,7 +19,8 @@ gpu = "slice"            # slice (1/8 of a 4090) | full | none (CPU only, may la
 # arch = "amd64"         # pin when a dependency has no arm64 wheels
 
 [snapshot]
-exclude = []             # on top of .gitignore and the cluster defaults
+# deploy/thirdparty (onnxruntime libs) and simulate/ (C++ sim2sim) are not used by training.
+exclude = ["deploy/thirdparty", "/simulate"]   # on top of .gitignore and the cluster defaults
 
 [env]
 # KEY = "value"
